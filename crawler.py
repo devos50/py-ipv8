@@ -1,3 +1,5 @@
+import json
+import os
 import time
 
 from ipv8.peerdiscovery.deprecated.discovery import DiscoveryCommunity
@@ -8,6 +10,7 @@ from ipv8.peerdiscovery.churn import RandomChurn
 from ipv8.peerdiscovery.network import Network
 from ipv8.peer import Peer
 
+from geoip import geolite2
 from twisted.internet.task import LoopingCall
 
 
@@ -36,6 +39,21 @@ class IPV8(object):
                 self.discovery_strategy.take_step()
                 self.discovery_churn_strategy.take_step()
             if time.time() > self.last_peer_write + 10:
+                services_dict = {}
+                countries_dict = {}
+                for p in self.network.verified_peers:
+                    # Try a geo lookup, list country as '?' if we have no info
+                    data = geolite2.lookup(p.address[0])
+                    if data:
+                        countries_dict[data.country] = 1 + countries_dict.get(data.country, 0)
+                    else:
+                        countries_dict['?'] = 1 + countries_dict.get('?', 0)
+                    # List the advertised services per peer (note that these may include personal channels)
+                    for cid in self.network.get_services_for_peer(p):
+                        hcid = cid.encode('hex')
+                        services_dict[hcid] = 1 + services_dict.get(hcid, 0)
+                with open("peer_info.json", "w") as f:
+                    print >> f, json.dumps({"services": services_dict, "countries": countries_dict})
                 with open("peer_count.txt", "w") as f:
                     print >> f, len(self.network.verified_peers)
                 self.last_peer_write = time.time()
