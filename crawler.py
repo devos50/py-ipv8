@@ -26,7 +26,7 @@ class IPV8(object):
 
         self.discovery_overlay = DiscoveryCommunity(self.my_peer, self.endpoint, self.network)
         self.discovery_strategy = RandomWalk(self.discovery_overlay)
-        self.discovery_churn_strategy = RandomChurn(self.discovery_overlay)
+        self.discovery_churn_strategy = RandomChurn(self.discovery_overlay, inactive_time=1.0, drop_time=3.0)
 
         self.state_machine_lc = LoopingCall(self.on_tick).start(0.05, False)
         self.last_peer_write = time.time()
@@ -38,7 +38,7 @@ class IPV8(object):
             else:
                 self.discovery_strategy.take_step()
                 self.discovery_churn_strategy.take_step()
-            if time.time() > self.last_peer_write + 10:
+            if time.time() > self.last_peer_write + 5:
                 services_dict = {}
                 countries_dict = {}
                 for p in self.network.verified_peers:
