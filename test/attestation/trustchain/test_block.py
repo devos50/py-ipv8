@@ -5,7 +5,6 @@ from hashlib import sha256
 
 from ipv8.attestation.trustchain.block import TrustChainBlock, GENESIS_HASH, GENESIS_SEQ, EMPTY_SIG
 from ipv8.keyvault.crypto import ECCrypto
-from ipv8.messaging.deprecated.encoding import encode
 
 
 class TestBlock(TrustChainBlock):
@@ -22,7 +21,7 @@ class TestBlock(TrustChainBlock):
 
         if previous:
             self.key = previous.key
-            TrustChainBlock.__init__(self, (encode(transaction), previous.public_key, previous.sequence_number + 1,
+            TrustChainBlock.__init__(self, (str(transaction), previous.public_key, previous.sequence_number + 1,
                                             other, 0, previous.hash, 0, 0))
         else:
             if key:
@@ -31,7 +30,7 @@ class TestBlock(TrustChainBlock):
                 self.key = crypto.generate_key(u"curve25519")
 
             TrustChainBlock.__init__(self, (
-                encode(transaction), self.key.pub().key_to_bin(), random.randint(50, 100), other, 0,
+                str(transaction), self.key.pub().key_to_bin(), random.randint(50, 100), other, 0,
                 sha256(str(random.randint(0, 100000))).digest(), 0, 0))
         self.sign(self.key)
 

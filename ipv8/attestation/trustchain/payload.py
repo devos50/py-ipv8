@@ -1,5 +1,4 @@
 from ...deprecated.payload import Payload
-from ...messaging.deprecated.encoding import encode
 
 
 class CrawlRequestPayload(Payload):
@@ -63,7 +62,7 @@ class HalfBlockPayload(Payload):
                 ('I', self.link_sequence_number),
                 ('32s', self.previous_hash),
                 ('64s', self.signature),
-                ('varlenI', encode(self.transaction))]
+                ('varlenI', str(self.transaction))]
 
         return data
 
@@ -151,7 +150,7 @@ class CrawlResponsePayload(Payload):
                 ('I', self.link_sequence_number),
                 ('32s', self.previous_hash),
                 ('64s', self.signature),
-                ('varlenI', encode(self.transaction)),
+                ('varlenI', str(self.transaction)),
                 ('I', self.crawl_id),
                 ('I', self.cur_count),
                 ('I', self.total_count)]
@@ -216,14 +215,14 @@ class HalfBlockPairPayload(Payload):
                 ('I', self.link_sequence_number1),
                 ('32s', self.previous_hash1),
                 ('64s', self.signature1),
-                ('varlenI', encode(self.transaction1)),
+                ('varlenI', str(self.transaction1)),
                 ('74s', self.public_key2),
                 ('I', self.sequence_number2),
                 ('74s', self.link_public_key2),
                 ('I', self.link_sequence_number2),
                 ('32s', self.previous_hash2),
                 ('64s', self.signature2),
-                ('varlenI', encode(self.transaction2))]
+                ('varlenI', str(self.transaction2))]
 
         return data
 

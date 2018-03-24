@@ -3,7 +3,6 @@ from hashlib import sha256
 import time
 
 from ...keyvault.crypto import ECCrypto
-from ...messaging.deprecated.encoding import decode, encode
 from ...messaging.serialization import Serializer
 from .payload import HalfBlockPayload
 
@@ -37,7 +36,7 @@ class TrustChainBlock(object):
             # debug stuff
             self.insert_time = None
         else:
-            _, self.transaction = decode(str(data[0]))
+            self.transaction = eval(str(data[0]))
             (self.public_key, self.sequence_number, self.link_public_key, self.link_sequence_number, self.previous_hash,
              self.signature, self.insert_time) = (data[1], data[2], data[3], data[4], data[5], data[6], data[7])
             if isinstance(self.public_key, buffer):
@@ -337,7 +336,7 @@ class TrustChainBlock(object):
         Prepare a tuple to use for inserting into the database
         :return: A database insertable tuple
         """
-        return (buffer(encode(self.transaction)), buffer(self.public_key), self.sequence_number,
+        return (buffer(str(self.transaction)), buffer(self.public_key), self.sequence_number,
                 buffer(self.link_public_key), self.link_sequence_number, buffer(self.previous_hash),
                 buffer(self.signature), buffer(self.hash))
 
