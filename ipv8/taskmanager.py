@@ -1,5 +1,6 @@
 from threading import Lock
 
+import logging
 from twisted.internet import reactor
 from twisted.internet.base import DelayedCall
 from twisted.internet.defer import Deferred, DeferredList
@@ -20,6 +21,8 @@ class TaskManager(object):
         self._pending_tasks = {}
         self._cleanup_counter = CLEANUP_FREQUENCY
         self._task_lock = Lock()
+        self._shutdown = False
+        self._logger = logging.getLogger(self.__class__.__name__)
 
     def replace_task(self, name, task):
         """
@@ -34,6 +37,10 @@ class TaskManager(object):
         """
         assert not self.is_pending_task_active(name), name
         assert isinstance(task, (Deferred, DelayedCall, LoopingCall)), (task, type(task) == type(Deferred))
+
+        if self._shutdown:
+            self._logger.warning("Not adding task %s due to shutdown!", str(task))
+            return task
 
         if delay is not None:
             if isinstance(task, Deferred):
@@ -129,5 +136,13 @@ class TaskManager(object):
             for name in self._pending_tasks.keys():
                 if not self.is_pending_task_active(name):
                     self._pending_tasks.pop(name, None)
+
+    def shutdown_task_manager(self):
+        """
+        Clear the task manager, cancel all pending tasks and disallow new tasks being added.
+        """
+        with self._task_lock:
+            self._shutdown = True
+            self.cancel_all_pending_tasks()
 
 __all__ = ["TaskManager"]
