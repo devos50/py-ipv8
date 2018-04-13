@@ -386,12 +386,12 @@ class TrustChainCommunity(Community):
 
         return eligible[-1]
 
-    def on_introduction_response(self, source_address, data):
-        super(TrustChainCommunity, self).on_introduction_response(source_address, data)
-
-        auth, _, _ = self._ez_unpack_auth(IntroductionResponsePayload, data)
-        peer = Peer(auth.public_key_bin, source_address)
-        self.crawl_lowest_unknown(peer)
+    # def on_introduction_response(self, source_address, data):
+    #     super(TrustChainCommunity, self).on_introduction_response(source_address, data)
+    #
+    #     auth, _, _ = self._ez_unpack_auth(IntroductionResponsePayload, data)
+    #     peer = Peer(auth.public_key_bin, source_address)
+    #     self.crawl_lowest_unknown(peer)
 
     def unload(self):
         self.logger.debug("Unloading the TrustChain Community.")
