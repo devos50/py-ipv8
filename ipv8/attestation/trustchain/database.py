@@ -34,6 +34,9 @@ class TrustChainDB(Database):
         self.db_name = db_name
         self.open()
 
+        self.block_cache = {}
+        self.linked_block_cache = {}
+
     def add_block(self, block):
         """
         Persist a block
@@ -44,6 +47,9 @@ class TrustChainDB(Database):
             u"link_sequence_number, previous_hash, signature, block_hash) VALUES(?,?,?,?,?,?,?,?)",
             block.pack_db_insert())
         self.commit()
+
+        self.block_cache[(block.public_key, block.sequence_number)] = block
+        self.linked_block_cache[(block.link_public_key, block.link_sequence_number)] = block
 
     def _get(self, query, params):
         db_result = list(self.execute(self.get_sql_header() + query, params, fetch_all=False))
@@ -60,7 +66,10 @@ class TrustChainDB(Database):
         :param sequence_number: The specific block to get
         :return: the block or None if it is not known
         """
-        return self._get(u"WHERE public_key = ? AND sequence_number = ?", (buffer(public_key), sequence_number))
+        if (public_key, sequence_number) not in self.block_cache:
+            return None
+        else:
+            return self.block_cache[(public_key, sequence_number)]
 
     def contains(self, block):
         """
@@ -68,7 +77,7 @@ class TrustChainDB(Database):
         :param block: the block to check
         :return: True if the block exists, else false.
         """
-        return self.get(block.public_key, block.sequence_number) is not None
+        return (block.public_key, block.sequence_number) in self.block_cache
 
     def get_latest(self, public_key):
         """
@@ -97,8 +106,9 @@ class TrustChainDB(Database):
         :param block: The block who's predecessor we want to find
         :return A block
         """
-        return self._get(u"WHERE sequence_number < ? AND public_key = ? ORDER BY sequence_number DESC",
-                         (block.sequence_number, buffer(block.public_key)))
+        if (block.public_key, block.sequence_number - 1) not in self.block_cache:
+            return None
+        return self.block_cache[(block.public_key, block.sequence_number - 1)]
 
     def get_lowest_sequence_number_unknown(self, public_key):
         """
@@ -117,16 +127,25 @@ class TrustChainDB(Database):
         :param block: The block for which to get the linked block
         :return: the latest block or None if it is not known
         """
-        return self._get(u"WHERE public_key = ? AND sequence_number = ? OR link_public_key = ? AND "
-                         u"link_sequence_number = ?", (buffer(block.link_public_key), block.link_sequence_number,
-                                                       buffer(block.public_key), block.sequence_number))
+        if (block.link_public_key, block.link_sequence_number) in self.block_cache:
+            return self.block_cache[(block.link_public_key, block.link_sequence_number)]
+        if (block.public_key, block.sequence_number) in self.linked_block_cache:
+            return self.linked_block_cache[(block.public_key, block.sequence_number)]
+        return None
 
     def crawl(self, public_key, sequence_number, limit=100):
         assert limit <= 100, "Don't fetch too much"
-        return self._getall(u"WHERE insert_time >= (SELECT MAX(insert_time) FROM blocks WHERE public_key = ? AND "
-                            u"sequence_number <= ?) AND (public_key = ? OR link_public_key = ?) "
-                            u"ORDER BY insert_time ASC LIMIT ?",
-                            (buffer(public_key), sequence_number, buffer(public_key), buffer(public_key), limit))
+        # TEMP we assume only ourselves are crawled
+        if (public_key, sequence_number) not in self.block_cache:
+            return []
+
+        blocks = []
+        for ind in xrange(limit):
+            if (public_key, sequence_number + ind) not in self.block_cache:
+                return blocks
+            blocks.append(self.block_cache[(public_key, sequence_number + ind)])
+
+        return blocks
 
     def get_sql_header(self):
         """
