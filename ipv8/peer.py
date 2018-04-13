@@ -24,6 +24,7 @@ class Peer(object):
         self.address = address
         self.last_response = 0 if intro else time()
         self._lamport_timestamp = 0
+        self.computed_mid = None
 
     def update_clock(self, timestamp):
         """
@@ -43,7 +44,9 @@ class Peer(object):
 
     @property
     def mid(self):
-        return self.key.key_to_hash()
+        if not self.computed_mid:
+            self.computed_mid = self.key.key_to_hash()
+        return self.computed_mid
 
     @property
     def public_key(self):
