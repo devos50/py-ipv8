@@ -23,6 +23,7 @@ class TrustChainBlock(object):
     def __init__(self, data=None, serializer=Serializer()):
         super(TrustChainBlock, self).__init__()
         self.computed_hash = None
+        self._raw_transaction = None
         if data is None:
             # data
             self.transaction = {}
@@ -50,6 +51,12 @@ class TrustChainBlock(object):
             if isinstance(self.signature, buffer):
                 self.signature = str(self.signature)
         self.serializer = serializer
+
+    @property
+    def raw_transaction(self):
+        if not self._raw_transaction:
+            self._raw_transaction = encode(self.transaction)
+        return self._raw_transaction
 
     @classmethod
     def from_payload(cls, payload, serializer):
@@ -121,7 +128,7 @@ class TrustChainBlock(object):
         :return: the buffer the data was packed into
         """
         args = [self.public_key, self.sequence_number, self.link_public_key, self.link_sequence_number,
-                self.previous_hash, self.signature if signature else EMPTY_SIG, self.transaction]
+                self.previous_hash, self.signature if signature else EMPTY_SIG, self.raw_transaction]
         return self.serializer.pack_multiple(HalfBlockPayload(*args).to_pack_list())
 
     def validate_transaction(self, database):
@@ -340,7 +347,7 @@ class TrustChainBlock(object):
         Prepare a tuple to use for inserting into the database
         :return: A database insertable tuple
         """
-        return (buffer(encode(self.transaction)), buffer(self.public_key), self.sequence_number,
+        return (buffer(self.raw_transaction), buffer(self.public_key), self.sequence_number,
                 buffer(self.link_public_key), self.link_sequence_number, buffer(self.previous_hash),
                 buffer(self.signature), buffer(self.hash))
 
