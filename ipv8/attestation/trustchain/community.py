@@ -60,6 +60,7 @@ class TrustChainCommunity(Community):
         self.logger.debug("The trustchain community started with Public Key: %s",
                           self.my_peer.public_key.key_to_bin().encode("hex"))
         self.broadcast_block = True  # Whether we broadcast a full block after constructing it
+        self.required_previous_blocks = 0
 
         self.decode_map.update({
             chr(1): self.received_half_block,
@@ -258,15 +259,15 @@ class TrustChainCommunity(Community):
         # It is important that the request matches up with its previous block, gaps cannot be tolerated at
         # this point. We already dropped invalids, so here we delay this message if the result is partial,
         # partial_previous or no-info. We send a crawl request to the requester to (hopefully) close the gap
-        if validation[0] == ValidationResult.partial_previous or validation[0] == ValidationResult.partial or \
-                        validation[0] == ValidationResult.no_info:
+        if (validation[0] == ValidationResult.partial_previous or validation[0] == ValidationResult.partial or
+                    validation[0] == ValidationResult.no_info) and self.required_previous_blocks > 0:
             self.logger.info("Request block could not be validated sufficiently, crawling requester. %s",
                              validation)
             # Note that this code does not cover the scenario where we obtain this block indirectly.
             if not self.request_cache.has(u"crawl", blk.hash_number):
                 crawl_deferred = self.send_crawl_request(peer,
                                                          blk.public_key,
-                                                         max(GENESIS_SEQ, blk.sequence_number - 5),
+                                                         max(GENESIS_SEQ, blk.sequence_number - self.required_previous_blocks),
                                                          for_half_block=blk)
                 crawl_deferred.addCallback(lambda _: self.process_half_block(blk, peer))
         else:
@@ -320,7 +321,9 @@ class TrustChainCommunity(Community):
             # The -2 element is the last_block.seq_nr - 1
             # Etc. until the genesis seq_nr
             sq = max(GENESIS_SEQ, last_block.sequence_number + (sq + 1)) if last_block else GENESIS_SEQ
-        blocks = self.persistence.crawl(self.my_peer.public_key.key_to_bin(), sq)
+
+        limit = self.required_previous_blocks if self.required_previous_blocks > 0 else 10
+        blocks = self.persistence.crawl(self.my_peer.public_key.key_to_bin(), sq, limit=limit)
         total_count = len(blocks)
 
         if total_count == 0:
