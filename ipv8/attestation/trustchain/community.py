@@ -358,12 +358,13 @@ class TrustChainCommunity(Community):
         """
         Return the trust score for a specific peer. For the basic Trustchain, this is the length of their chain.
         """
-        block = self.persistence.get_latest(peer.public_key.key_to_bin())
-        if block:
-            return block.sequence_number
-        else:
-            # We need a minimum of 1 trust to have a chance to be selected in the categorical distribution.
-            return 1
+        # block = self.persistence.get_latest(peer.public_key.key_to_bin())
+        # if block:
+        #     return block.sequence_number
+        # else:
+        #     # We need a minimum of 1 trust to have a chance to be selected in the categorical distribution.
+        #     return 1
+        return 1
 
     def get_peer_for_introduction(self, exclude=None):
         """
