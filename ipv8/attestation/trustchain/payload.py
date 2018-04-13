@@ -53,7 +53,7 @@ class HalfBlockPayload(Payload):
             block.link_sequence_number,
             block.previous_hash,
             block.signature,
-            block.transaction
+            block.raw_transaction
         )
 
     def to_pack_list(self):
@@ -63,7 +63,7 @@ class HalfBlockPayload(Payload):
                 ('I', self.link_sequence_number),
                 ('32s', self.previous_hash),
                 ('64s', self.signature),
-                ('varlenI', encode(self.transaction))]
+                ('varlenI', self.transaction)]
 
         return data
 
@@ -94,7 +94,7 @@ class HalfBlockBroadcastPayload(HalfBlockPayload):
             block.link_sequence_number,
             block.previous_hash,
             block.signature,
-            block.transaction,
+            block.raw_transaction,
             ttl
         )
 
@@ -138,7 +138,7 @@ class CrawlResponsePayload(Payload):
             block.link_sequence_number,
             block.previous_hash,
             block.signature,
-            block.transaction,
+            block.raw_transaction,
             crawl_id,
             cur_count,
             total_count,
@@ -151,7 +151,7 @@ class CrawlResponsePayload(Payload):
                 ('I', self.link_sequence_number),
                 ('32s', self.previous_hash),
                 ('64s', self.signature),
-                ('varlenI', encode(self.transaction)),
+                ('varlenI', self.transaction),
                 ('I', self.crawl_id),
                 ('I', self.cur_count),
                 ('I', self.total_count)]
@@ -199,14 +199,14 @@ class HalfBlockPairPayload(Payload):
             block1.link_sequence_number,
             block1.previous_hash,
             block1.signature,
-            block1.transaction,
+            block1.raw_transaction,
             block2.public_key,
             block2.sequence_number,
             block2.link_public_key,
             block2.link_sequence_number,
             block2.previous_hash,
             block2.signature,
-            block2.transaction
+            block2.raw_transaction
         )
 
     def to_pack_list(self):
@@ -216,14 +216,14 @@ class HalfBlockPairPayload(Payload):
                 ('I', self.link_sequence_number1),
                 ('32s', self.previous_hash1),
                 ('64s', self.signature1),
-                ('varlenI', encode(self.transaction1)),
+                ('varlenI', self.transaction1),
                 ('74s', self.public_key2),
                 ('I', self.sequence_number2),
                 ('74s', self.link_public_key2),
                 ('I', self.link_sequence_number2),
                 ('32s', self.previous_hash2),
                 ('64s', self.signature2),
-                ('varlenI', encode(self.transaction2))]
+                ('varlenI', self.transaction2)]
 
         return data
 
@@ -258,14 +258,14 @@ class HalfBlockPairBroadcastPayload(HalfBlockPairPayload):
             block1.link_sequence_number,
             block1.previous_hash,
             block1.signature,
-            block1.transaction,
+            block1.raw_transaction,
             block2.public_key,
             block2.sequence_number,
             block2.link_public_key,
             block2.link_sequence_number,
             block2.previous_hash,
             block2.signature,
-            block2.transaction,
+            block2.raw_transaction,
             ttl
         )
 
