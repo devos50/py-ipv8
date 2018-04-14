@@ -28,6 +28,8 @@ class Network(object):
         # Map of service identifiers to local overlays
         self.service_overlays = {}
 
+        self.verified_peers_map = {}  # Optimization
+
     def discover_address(self, peer, address):
         """
         A peer has introduced us to another IP address.
@@ -91,6 +93,7 @@ class Network(object):
                 # This should always happen, unless someone edits the verified_peers dict directly.
                 # This would be a programmer 'error', but we will allow it.
                 self.verified_peers.append(peer)
+                self.verified_peers_map[peer.address] = peer
         elif (peer.address not in self.blacklist):
             if peer.address not in self._all_addresses:
                 self._all_addresses[peer.address] = ''
@@ -98,6 +101,7 @@ class Network(object):
                 self.graph.add_node(b64encode(peer.mid))
             if peer not in self.verified_peers:
                 self.verified_peers.append(peer)
+                self.verified_peers_map[peer.address] = peer
         self.graph_lock.release()
 
     def register_service_provider(self, service_id, overlay):
@@ -164,11 +168,13 @@ class Network(object):
         :return: the Peer object for this address or None
         """
         self.graph_lock.acquire()
-        for i in range(len(self.verified_peers)):
-            if self.verified_peers[i].address == address:
-                out = self.verified_peers[i]
-                self.graph_lock.release()
-                return out
+        # for i in range(len(self.verified_peers)):
+        #     if self.verified_peers[i].address == address:
+        #         out = self.verified_peers[i]
+        #         self.graph_lock.release()
+        #         return out
+        if address in self.verified_peers_map:
+            return self.verified_peers_map[address]
         self.graph_lock.release()
 
     def get_verified_by_public_key_bin(self, public_key_bin):
