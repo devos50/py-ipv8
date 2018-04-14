@@ -43,6 +43,7 @@ class TrustChainCommunity(Community):
     DB_CLASS = TrustChainDB
     DB_NAME = 'trustchain'
     BROADCAST_FANOUT = 10
+    DEFAULT_TTL = 2
     version = '\x02'
     master_peer = Peer(("3081a7301006072a8648ce3d020106052b81040027038192000403428b0fa33d3ed62dd39852481f535e2161714" +
                         "4a95e682ad5733b9a739b27051dc6ad1da743a463821fc8d3d1849191d5fb84fab1f3fe3ad44fb2b83f07d0c78a" +
@@ -78,10 +79,13 @@ class TrustChainCommunity(Community):
         """
         return True
 
-    def send_block(self, block, address=None, ttl=2):
+    def send_block(self, block, address=None, ttl=-1):
         """
         Send a block to a specific address, or do a broadcast to known peers if no peer is specified.
         """
+        if ttl == -1:
+            ttl = self.DEFAULT_TTL
+
         global_time = self.claim_global_time()
         dist = GlobalTimeDistributionPayload(global_time).to_pack_list()
 
@@ -99,10 +103,13 @@ class TrustChainCommunity(Community):
                 self.endpoint.send(peer.address, packet)
             self.relayed_broadcasts.append(block.block_id)
 
-    def send_block_pair(self, block1, block2, address=None, ttl=2):
+    def send_block_pair(self, block1, block2, address=None, ttl=-1):
         """
         Send a half block pair to a specific address, or do a broadcast to known peers if no peer is specified.
         """
+        if ttl == -1:
+            ttl = self.DEFAULT_TTL
+
         global_time = self.claim_global_time()
         dist = GlobalTimeDistributionPayload(global_time).to_pack_list()
 
