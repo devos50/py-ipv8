@@ -41,6 +41,8 @@ class UDPEndpoint(Endpoint):
         self._sendqueue = []
 
         self._running = False
+        self.sent_bytes = 0
+        self.received_bytes = 0
 
     def assert_open(self):
         """
@@ -81,6 +83,7 @@ class UDPEndpoint(Endpoint):
 
         try:
             self._socket.sendto(packet, socket_address)
+            self.sent_bytes += len(packet)
         except socket.error:
             with self._sendqueue_lock:
                 did_have_senqueue = bool(self._sendqueue)
@@ -176,6 +179,7 @@ class UDPEndpoint(Endpoint):
                     while True:
                         (data, sock_addr) = recvfrom(65535)
                         if data:
+                            self.received_bytes += len(data)
                             packets.append((sock_addr, data))
                         else:
                             break
