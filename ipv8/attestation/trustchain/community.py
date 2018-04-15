@@ -4,6 +4,7 @@ This reputation system builds a tamper proof interaction history contained in a 
 Every node has a chain and these chains intertwine by blocks shared by chains.
 """
 import logging
+import os
 import random
 from threading import RLock
 
@@ -79,6 +80,9 @@ class TrustChainCommunity(Community):
         """
         return True
 
+    def get_broadcast_peers(self):
+        return random.sample(self.network.verified_peers, min(len(self.network.verified_peers), self.BROADCAST_FANOUT))
+
     def send_block(self, block, address=None, ttl=-1):
         """
         Send a block to a specific address, or do a broadcast to known peers if no peer is specified.
@@ -98,8 +102,7 @@ class TrustChainCommunity(Community):
             self.logger.debug("Broadcasting block %s", block)
             payload = HalfBlockBroadcastPayload.from_half_block(block, ttl).to_pack_list()
             packet = self._ez_pack(self._prefix, 5, [dist, payload], False)
-            for peer in random.sample(self.network.verified_peers, min(len(self.network.verified_peers),
-                                                                       self.BROADCAST_FANOUT)):
+            for peer in self.get_broadcast_peers():
                 self.endpoint.send(peer.address, packet)
             self.relayed_broadcasts.append(block.block_id)
 
@@ -122,8 +125,7 @@ class TrustChainCommunity(Community):
             self.logger.debug("Broadcasting blocks %s and %s", block1, block2)
             payload = HalfBlockPairBroadcastPayload.from_half_blocks(block1, block2, ttl).to_pack_list()
             packet = self._ez_pack(self._prefix, 6, [dist, payload], False)
-            for peer in random.sample(self.network.verified_peers, min(len(self.network.verified_peers),
-                                                                       self.BROADCAST_FANOUT)):
+            for peer in self.get_broadcast_peers():
                 self.endpoint.send(peer.address, packet)
             self.relayed_broadcasts.append(block1.block_id)
 
