@@ -78,7 +78,7 @@ class TrustChainCommunity(Community):
         """
         return True
 
-    def send_block(self, block, address=None, ttl=2):
+    def send_block(self, block, address=None, ttl=0):
         """
         Send a block to a specific address, or do a broadcast to known peers if no peer is specified.
         """
@@ -99,7 +99,7 @@ class TrustChainCommunity(Community):
                 self.endpoint.send(peer.address, packet)
             self.relayed_broadcasts.append(block.block_id)
 
-    def send_block_pair(self, block1, block2, address=None, ttl=2):
+    def send_block_pair(self, block1, block2, address=None, ttl=0):
         """
         Send a half block pair to a specific address, or do a broadcast to known peers if no peer is specified.
         """
