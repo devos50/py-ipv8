@@ -66,7 +66,7 @@ class TrustChainBlock(object):
         """
         return cls([payload.transaction, payload.public_key, payload.sequence_number,
                     payload.link_public_key, payload.link_sequence_number, payload.previous_hash,
-                    payload.signature, time.time()], serializer)
+                    payload.signature, int(round(time.time() * 1000))], serializer)
 
     @classmethod
     def from_pair_payload(cls, payload, serializer):
@@ -76,10 +76,10 @@ class TrustChainBlock(object):
         """
         block1 = cls([payload.transaction1, payload.public_key1, payload.sequence_number1,
                       payload.link_public_key1, payload.link_sequence_number1, payload.previous_hash1,
-                      payload.signature1, time.time()], serializer)
+                      payload.signature1, int(round(time.time() * 1000))], serializer)
         block2 = cls([payload.transaction2, payload.public_key2, payload.sequence_number2,
                       payload.link_public_key2, payload.link_sequence_number2, payload.previous_hash2,
-                      payload.signature2, time.time()], serializer)
+                      payload.signature2, int(round(time.time() * 1000))], serializer)
         return block1, block2
 
     def __str__(self):
