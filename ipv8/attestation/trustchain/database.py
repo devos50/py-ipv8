@@ -97,8 +97,9 @@ class TrustChainDB(Database):
         :param block: The block who's successor we want to find
         :return A block
         """
-        return self._get(u"WHERE sequence_number > ? AND public_key = ? ORDER BY sequence_number ASC",
-                         (block.sequence_number, buffer(block.public_key)))
+        if (block.public_key, block.sequence_number + 1) not in self.block_cache:
+            return None
+        return self.block_cache[(block.public_key, block.sequence_number + 1)]
 
     def get_block_before(self, block):
         """
