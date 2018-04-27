@@ -36,6 +36,7 @@ class TrustChainDB(Database):
 
         self.block_cache = {}
         self.linked_block_cache = {}
+        self.double_spend_detection_time = None
 
     def add_block(self, block):
         """
@@ -135,7 +136,6 @@ class TrustChainDB(Database):
         return None
 
     def crawl(self, public_key, sequence_number, limit=100):
-        assert limit <= 100, "Don't fetch too much"
         # TEMP we assume only ourselves are crawled
         if (public_key, sequence_number) not in self.block_cache:
             return []
@@ -144,7 +144,13 @@ class TrustChainDB(Database):
         for ind in xrange(limit):
             if (public_key, sequence_number + ind) not in self.block_cache:
                 return blocks
-            blocks.append(self.block_cache[(public_key, sequence_number + ind)])
+            block = self.block_cache[(public_key, sequence_number + ind)]
+            blocks.append(block)
+
+            # Also get the linked block, if available
+            linked = self.get_linked(block)
+            if linked:
+                blocks.append(linked)
 
         return blocks
 

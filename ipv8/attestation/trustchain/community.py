@@ -120,7 +120,7 @@ class TrustChainCommunity(Community):
                 self.endpoint.send(peer.address, packet)
             self.relayed_broadcasts.append(block1.block_id)
 
-    def sign_block(self, peer, public_key=EMPTY_PK, transaction=None, linked=None):
+    def sign_block(self, peer, public_key=EMPTY_PK, transaction=None, linked=None, double_spend=False):
         """
         Create, sign, persist and send a block signed message
         :param peer: The peer with whom you have interacted, as a dispersy candidate
@@ -138,7 +138,7 @@ class TrustChainCommunity(Community):
         assert transaction is None or isinstance(transaction, dict), "Transaction should be a dictionary"
 
         block = self.BLOCK_CLASS.create(transaction, self.persistence, self.my_peer.public_key.key_to_bin(),
-                                        link=linked, link_pk=public_key)
+                                        link=linked, link_pk=public_key, double_spend=double_spend)
         block.sign(self.my_peer.key)
         # validation = block.validate(self.persistence)
         # self.logger.info("Signed block to %s (%s) validation result %s",
@@ -322,8 +322,7 @@ class TrustChainCommunity(Community):
             # Etc. until the genesis seq_nr
             sq = max(GENESIS_SEQ, last_block.sequence_number + (sq + 1)) if last_block else GENESIS_SEQ
 
-        limit = self.required_previous_blocks if self.required_previous_blocks > 0 else 10
-        blocks = self.persistence.crawl(self.my_peer.public_key.key_to_bin(), sq, limit=limit)
+        blocks = self.persistence.crawl(self.my_peer.public_key.key_to_bin(), sq, limit=100000)
         total_count = len(blocks)
 
         if total_count == 0:

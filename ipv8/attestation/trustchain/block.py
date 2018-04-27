@@ -263,6 +263,7 @@ class TrustChainBlock(object):
                 err("Signature does not match known block")
             # if the known block is not equal, and the signatures are valid, we have a double signed PK/seq. Fraud!
             if self.hash != blk.hash and "Invalid signature" not in errors and "Public key is not valid" not in errors:
+                database.double_spend_detection_time = int(round(time.time() * 1000))
                 err("Double sign fraud")
 
         # Step 5: does the database have the linked block? If so do the values match up? If the values do not match up
@@ -313,7 +314,7 @@ class TrustChainBlock(object):
         self.signature = crypto.create_signature(key, self.pack(signature=False))
 
     @classmethod
-    def create(cls, transaction, database, public_key, link=None, link_pk=None):
+    def create(cls, transaction, database, public_key, link=None, link_pk=None, double_spend=False):
         """
         Create an empty next block.
         :param database: the database to use as information source
@@ -324,6 +325,14 @@ class TrustChainBlock(object):
         :return: A newly created block
         """
         blk = database.get_latest(public_key)
+        if double_spend:
+            # Remove the (old) block
+            database.block_cache.pop((blk.public_key, blk.sequence_number), None)
+            database.execute(u"DELETE FROM blocks WHERE public_key = ? AND sequence_number = ?", (buffer(blk.public_key), blk.sequence_number))
+
+            # Get the block before and build upon this block
+            blk = database.get_block_before(blk)
+
         ret = cls()
         if link:
             ret.transaction = link.transaction
