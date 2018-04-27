@@ -59,7 +59,7 @@ class TrustChainCommunity(Community):
         self.relayed_broadcasts = []
         self.logger.debug("The trustchain community started with Public Key: %s",
                           self.my_peer.public_key.key_to_bin().encode("hex"))
-        self.broadcast_block = True  # Whether we broadcast a full block after constructing it
+        self.broadcast_block = False  # Whether we broadcast a full block after constructing it
         self.required_previous_blocks = 0
 
         self.decode_map.update({
