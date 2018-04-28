@@ -36,6 +36,7 @@ class TrustChainDB(Database):
 
         self.block_cache = {}
         self.linked_block_cache = {}
+        self.latest_seq_num = {}
         self.double_spend_detection_time = None
 
     def add_block(self, block):
@@ -43,11 +44,10 @@ class TrustChainDB(Database):
         Persist a block
         :param block: The data that will be saved.
         """
-        self.execute(
-            u"INSERT INTO blocks (tx, public_key, sequence_number, link_public_key,"
-            u"link_sequence_number, previous_hash, signature, block_hash) VALUES(?,?,?,?,?,?,?,?)",
-            block.pack_db_insert())
-        self.commit()
+        if block.public_key not in self.latest_seq_num:
+            self.latest_seq_num[block.public_key] = block.sequence_number
+        elif self.latest_seq_num[block.public_key] < block.sequence_number:
+            self.latest_seq_num[block.public_key] = block.sequence_number
 
         self.block_cache[(block.public_key, block.sequence_number)] = block
         self.linked_block_cache[(block.link_public_key, block.link_sequence_number)] = block
@@ -86,8 +86,10 @@ class TrustChainDB(Database):
         :param public_key: The public_key for which the latest block has to be found.
         :return: the latest block or None if it is not known
         """
-        return self._get(u"WHERE public_key = ? AND sequence_number = (SELECT MAX(sequence_number) FROM blocks "
-                         u"WHERE public_key = ?)", (buffer(public_key), buffer(public_key)))
+        if public_key not in self.latest_seq_num:
+            return None
+        seq = self.latest_seq_num[public_key]
+        return self.block_cache[(public_key, seq)]
 
     def get_latest_blocks(self, public_key, limit=25):
         return self._getall(u"WHERE public_key = ? ORDER BY sequence_number DESC LIMIT ?", (buffer(public_key), limit))
