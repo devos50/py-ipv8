@@ -26,6 +26,26 @@ class CrawlRequestPayload(Payload):
         return CrawlRequestPayload(sequence_number, crawl_id)
 
 
+class KillPayload(Payload):
+    """
+    Payload with the instructions to stop the reactor (for double spend detection experiment).
+    """
+
+    format_list = []
+
+    def __init__(self):
+        super(KillPayload, self).__init__()
+
+    def to_pack_list(self):
+        data = []
+
+        return data
+
+    @classmethod
+    def from_unpack_list(cls):
+        return KillPayload()
+
+
 class HalfBlockPayload(Payload):
     """
     Payload for message that ships a half block

@@ -37,7 +37,9 @@ class TrustChainDB(Database):
         self.block_cache = {}
         self.linked_block_cache = {}
         self.latest_seq_num = {}
+        self.crawl_start_time = None
         self.double_spend_detection_time = None
+        self.community = None
 
     def add_block(self, block):
         """

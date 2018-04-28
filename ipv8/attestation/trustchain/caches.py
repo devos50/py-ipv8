@@ -63,5 +63,5 @@ class CrawlRequestCache(NumberCache):
             reactor.callFromThread(self.crawl_deferred.callback, self.received_half_blocks)
 
     def on_timeout(self):
-        self._logger.info("Timeout for crawl with id %d", self.number)
+        self._logger.info("Timeout for crawl with id %d (received %d/%d)", self.number, len(self.received_half_blocks), self.total_half_blocks_expected)
         self.crawl_deferred.callback(self.received_half_blocks)

@@ -264,6 +264,13 @@ class TrustChainBlock(object):
             # if the known block is not equal, and the signatures are valid, we have a double signed PK/seq. Fraud!
             if self.hash != blk.hash and "Invalid signature" not in errors and "Public key is not valid" not in errors:
                 database.double_spend_detection_time = int(round(time.time() * 1000))
+                interval = database.double_spend_detection_time - database.crawl_start_time
+                with open("detection_time.txt", "w") as out:
+                    out.write("%d" % interval)
+
+                # Send kill
+                database.community.send_kill()
+
                 err("Double sign fraud")
 
         # Step 5: does the database have the linked block? If so do the values match up? If the values do not match up

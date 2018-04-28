@@ -8,7 +8,8 @@ import random
 from threading import RLock
 
 from twisted.internet import reactor
-from twisted.internet.defer import Deferred, succeed, fail
+from twisted.internet.defer import Deferred, succeed, fail, inlineCallbacks
+from twisted.internet.task import deferLater
 
 from .block import TrustChainBlock, ValidationResult, EMPTY_PK, GENESIS_SEQ, UNKNOWN_SEQ
 from .caches import CrawlRequestCache, HalfBlockSignCache
@@ -56,11 +57,13 @@ class TrustChainCommunity(Community):
         self.request_cache = RequestCache()
         self.logger = logging.getLogger(self.__class__.__name__)
         self.persistence = self.DB_CLASS(working_directory, db_name)
+        self.persistence.community = self
         self.relayed_broadcasts = []
         self.logger.debug("The trustchain community started with Public Key: %s",
                           self.my_peer.public_key.key_to_bin().encode("hex"))
         self.broadcast_block = False  # Whether we broadcast a full block after constructing it
         self.required_previous_blocks = 0
+        self.will_kill = False
 
         self.decode_map.update({
             chr(1): self.received_half_block,
@@ -68,8 +71,27 @@ class TrustChainCommunity(Community):
             chr(3): self.received_crawl_response,
             chr(4): self.received_half_block_pair,
             chr(5): self.received_half_block_broadcast,
-            chr(6): self.received_half_block_pair_broadcast
+            chr(6): self.received_half_block_pair_broadcast,
+            chr(7): self.received_kill_payload
         })
+
+    def send_kill(self):
+        global_time = self.claim_global_time()
+        auth = BinMemberAuthenticationPayload(self.my_peer.public_key.key_to_bin()).to_pack_list()
+        payload = KillPayload().to_pack_list()
+        dist = GlobalTimeDistributionPayload(global_time).to_pack_list()
+
+        packet = self._ez_pack(self._prefix, 7, [auth, dist, payload])
+        for peer in self.network.verified_peers:
+            self.endpoint.send(peer.address, packet)
+
+        self.will_kill = True
+        reactor.callLater(5, reactor.stop)
+
+    def received_kill_payload(self, source_address, data):
+        # Propagate this kill message and stop the reactor
+        if not self.will_kill:
+            self.send_kill()
 
     def should_sign(self, block):
         """
@@ -332,9 +354,14 @@ class TrustChainCommunity(Community):
                                             link_pk=EMPTY_PK)
             self.send_crawl_response(block, payload.crawl_id, 0, 0, peer)
 
-        for ind in xrange(len(blocks)):
-            self.send_crawl_response(blocks[ind], payload.crawl_id, ind + 1, total_count, peer)
-        self.logger.info("Sent %d blocks", total_count)
+        @inlineCallbacks
+        def send_inner():
+            for ind in xrange(len(blocks)):
+                self.send_crawl_response(blocks[ind], payload.crawl_id, ind + 1, total_count, peer)
+                yield deferLater(reactor, 0.001, lambda: None)
+            self.logger.info("Sent %d blocks", total_count)
+
+        send_inner()
 
     def send_crawl_response(self, block, crawl_id, index, total_count, peer):
         self.logger.debug("Sending block for crawl request to %s (%s)", peer, block)
