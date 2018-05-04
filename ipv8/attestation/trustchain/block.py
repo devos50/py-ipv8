@@ -263,10 +263,8 @@ class TrustChainBlock(object):
                 err("Signature does not match known block")
             # if the known block is not equal, and the signatures are valid, we have a double signed PK/seq. Fraud!
             if self.hash != blk.hash and "Invalid signature" not in errors and "Public key is not valid" not in errors:
-                database.double_spend_detection_time = int(round(time.time() * 1000))
-                interval = database.double_spend_detection_time - database.crawl_start_time
                 with open("detection_time.txt", "w") as out:
-                    out.write("%d" % interval)
+                    out.write("%d" % int(round(time.time() * 1000)))
 
                 # Send kill
                 database.community.send_kill()
@@ -307,6 +305,12 @@ class TrustChainBlock(object):
             assert next_blk.public_key == self.public_key and next_blk.sequence_number > self.sequence_number,\
                 "Database returned unexpected block"
             if not is_next_gap and next_blk.previous_hash != self.hash:
+                with open("detection_time.txt", "w") as out:
+                    out.write("%d" % int(round(time.time() * 1000)))
+
+                # Send kill
+                database.community.send_kill()
+
                 err("Next hash is not equal to the hash id of the block")
                 # Again, this might not be fraud, but fixing it can only result in fraud.
 
