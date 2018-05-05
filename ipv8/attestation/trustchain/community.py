@@ -172,6 +172,7 @@ class TrustChainCommunity(Community):
         peer = Peer(payload.public_key, source_address)
         block = TrustChainBlock.from_payload(payload, self.serializer)
         self.process_half_block(block, peer)
+        return block
 
     @synchronized
     def received_half_block_broadcast(self, source, data):
@@ -184,6 +185,7 @@ class TrustChainCommunity(Community):
 
         if block.block_id not in self.relayed_broadcasts and payload.ttl > 0:
             self.send_block(block, ttl=payload.ttl - 1)
+        return block
 
     @synchronized
     def received_half_block_pair(self, source_address, data):
@@ -194,6 +196,7 @@ class TrustChainCommunity(Community):
         block1, block2 = TrustChainBlock.from_pair_payload(payload, self.serializer)
         self.validate_persist_block(block1)
         self.validate_persist_block(block2)
+        return block1, block2
 
     @synchronized
     def received_half_block_pair_broadcast(self, source, data):
@@ -207,6 +210,7 @@ class TrustChainCommunity(Community):
 
         if block1.block_id not in self.relayed_broadcasts and payload.ttl > 0:
             self.send_block_pair(block1, block2, ttl=payload.ttl - 1)
+        return block1, block2
 
     def validate_persist_block(self, block):
         """
