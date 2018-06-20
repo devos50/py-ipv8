@@ -68,7 +68,7 @@ class TrustChainCommunity(Community):
                           self.my_peer.public_key.key_to_bin().encode("hex"))
         self.broadcast_block = True  # Whether we broadcast a full block after constructing it
         self.shutting_down = False
-        self.listeners_map = {}  # Map of block_type -> [callbacks]
+        self.listeners_map = {"*": []}  # Map of block_type -> [callbacks]
 
         self.decode_map.update({
             chr(1): self.received_half_block,
@@ -79,19 +79,26 @@ class TrustChainCommunity(Community):
             chr(6): self.received_half_block_pair_broadcast
         })
 
-    def add_listener(self, listener, block_types):
+    def add_listener(self, listener, block_types=None):
         """
-        Add a listener for specific block types.
+        Add a listener for all blocks or specific block types.
         """
-        for block_type in block_types:
-            if block_type not in self.listeners_map:
-                self.listeners_map[block_type] = []
-            self.listeners_map[block_type].append(listener)
+        if block_types:
+            for block_type in block_types:
+                if block_type not in self.listeners_map:
+                    self.listeners_map[block_type] = []
+                self.listeners_map[block_type].append(listener)
+        else:
+            self.listeners_map["*"].append(listener)
 
-    def remove_listener(self, listener, block_types):
-        for block_type in block_types:
-            if block_type in self.listeners_map and listener in self.listeners_map[block_type]:
-                self.listeners_map[block_type].remove(listener)
+    def remove_listener(self, listener, block_types=None):
+        if block_types:
+            for block_type in block_types:
+                if block_type in self.listeners_map and listener in self.listeners_map[block_type]:
+                    self.listeners_map[block_type].remove(listener)
+        else:
+            if listener in self.listeners_map["*"]:
+                self.listeners_map["*"].remove(listener)
 
     def get_block_class(self, block_type):
         """
@@ -275,6 +282,9 @@ class TrustChainCommunity(Community):
             return
 
         for listener in self.listeners_map[block.type]:
+            listener.received_block(block)
+
+        for listener in self.listeners_map["*"]:
             listener.received_block(block)
 
     @synchronized
