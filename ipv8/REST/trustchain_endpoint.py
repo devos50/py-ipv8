@@ -18,9 +18,54 @@ class TrustchainEndpoint(BaseEndpoint):
 
         trustchain_overlays = [overlay for overlay in session.overlays if isinstance(overlay, TrustChainCommunity)]
         if trustchain_overlays:
+            self.putChild(b"statistics", TrustchainStatisticsEndpoint(trustchain_overlays[0]))
             self.putChild(b"recent", TrustchainRecentEndpoint(trustchain_overlays[0]))
             self.putChild(b"blocks", TrustchainBlocksEndpoint(trustchain_overlays[0]))
             self.putChild(b"users", TrustchainUsersEndpoint(trustchain_overlays[0]))
+
+
+class TrustchainStatisticsEndpoint(BaseEndpoint):
+
+    def __init__(self, trustchain):
+        BaseEndpoint.__init__(self)
+        self.trustchain = trustchain
+
+        self.putChild(b"types", TrustchainStatisticsTypesEndpoint(self.trustchain))
+        self.putChild(b"block_creation", TrustChainStatisticsCreationEndpoint(self.trustchain))
+        self.putChild(b"interactions", TrustchainStatisticsInteractionsEndpoint(self.trustchain))
+
+    def render_GET(self, request):
+        return self.twisted_dumps({"statistics": self.trustchain.persistence.get_statistics()})
+
+
+class TrustchainStatisticsTypesEndpoint(BaseEndpoint):
+
+    def __init__(self, trustchain):
+        BaseEndpoint.__init__(self)
+        self.trustchain = trustchain
+
+    def render_GET(self, request):
+        return self.twisted_dumps({"types": self.trustchain.persistence.get_types_statistics()})
+
+
+class TrustChainStatisticsCreationEndpoint(BaseEndpoint):
+
+    def __init__(self, trustchain):
+        BaseEndpoint.__init__(self)
+        self.trustchain = trustchain
+
+    def render_GET(self, request):
+        return self.twisted_dumps({"statistics": self.trustchain.persistence.get_block_creation_daily_statistics()})
+
+
+class TrustchainStatisticsInteractionsEndpoint(BaseEndpoint):
+
+    def __init__(self, trustchain):
+        BaseEndpoint.__init__(self)
+        self.trustchain = trustchain
+
+    def render_GET(self, request):
+        return self.twisted_dumps({"interactions": self.trustchain.persistence.get_interactions()})
 
 
 class TrustchainRecentEndpoint(BaseEndpoint):
