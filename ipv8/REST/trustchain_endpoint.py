@@ -19,9 +19,54 @@ class TrustchainEndpoint(resource.Resource):
 
         trustchain_overlays = [overlay for overlay in session.overlays if isinstance(overlay, TrustChainCommunity)]
         if trustchain_overlays:
+            self.putChild("statistics", TrustchainStatisticsEndpoint(trustchain_overlays[0]))
             self.putChild("recent", TrustchainRecentEndpoint(trustchain_overlays[0]))
             self.putChild("blocks", TrustchainBlocksEndpoint(trustchain_overlays[0]))
             self.putChild("users", TrustchainUsersEndpoint(trustchain_overlays[0]))
+
+
+class TrustchainStatisticsEndpoint(resource.Resource):
+
+    def __init__(self, trustchain):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+
+        self.putChild("types", TrustchainStatisticsTypesEndpoint(self.trustchain))
+        self.putChild("block_creation", TrustChainStatisticsCreationEndpoint(self.trustchain))
+        self.putChild("interactions", TrustchainStatisticsInteractionsEndpoint(self.trustchain))
+
+    def render_GET(self, request):
+        return json.dumps({"statistics": self.trustchain.persistence.get_statistics()})
+
+
+class TrustchainStatisticsTypesEndpoint(resource.Resource):
+
+    def __init__(self, trustchain):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+
+    def render_GET(self, request):
+        return json.dumps({"types": self.trustchain.persistence.get_types_statistics()})
+
+
+class TrustChainStatisticsCreationEndpoint(resource.Resource):
+
+    def __init__(self, trustchain):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+
+    def render_GET(self, request):
+        return json.dumps({"statistics": self.trustchain.persistence.get_block_creation_daily_statistics()})
+
+
+class TrustchainStatisticsInteractionsEndpoint(resource.Resource):
+
+    def __init__(self, trustchain):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+
+    def render_GET(self, request):
+        return json.dumps({"interactions": self.trustchain.persistence.get_interactions()})
 
 
 class TrustchainRecentEndpoint(resource.Resource):
