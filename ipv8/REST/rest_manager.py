@@ -50,6 +50,7 @@ class RESTRequest(server.Request):
     def __init__(self, *args, **kw):
         server.Request.__init__(self, *args, **kw)
         self._logger = logging.getLogger(self.__class__.__name__)
+        self.responseHeaders.addRawHeader('Access-Control-Allow-Origin', '*')
 
         # Default headers
         self.setHeader(b'Access-Control-Allow-Origin', b'*')
