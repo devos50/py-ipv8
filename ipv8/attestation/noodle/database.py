@@ -46,6 +46,20 @@ class NoodleDB(Database):
 
         self.open()
 
+        # Pre-load some data to speed up queries
+        self.num_blocks = list(self.execute(u"SELECT COUNT(*) FROM blocks"))[0][0]
+        self.pubkeys = set()
+        for row in self.execute(u"SELECT DISTINCT public_key FROM blocks"):
+            pub_key = str(row[0]).encode('hex')
+            self.pubkeys.add(pub_key)
+        var_sizes = list(self.execute(u"SELECT SUM(LENGTH(type)), SUM(LENGTH(tx)) FROM blocks"))[0]
+        if var_sizes[0] != None:
+            self.total_db_size = 260 * self.num_blocks + var_sizes[0] + var_sizes[1]
+        else:
+            self.total_db_size = 0
+
+        self._logger.info("Loaded TrustChain database information in memory")
+
     def get_block_class(self, block_type):
         """
         Get the block class for a specific block type.
@@ -60,11 +74,15 @@ class NoodleDB(Database):
         Persist a block
         :param block: The data that will be saved.
         """
+        db_data = block.pack_db_insert()
         self.execute(
             u"INSERT INTO blocks (type, tx, public_key, sequence_number, link_public_key,"
             u"link_sequence_number, previous_hash, signature, block_timestamp, block_hash) VALUES(?,?,?,?,?,?,?,?,?,?)",
-            block.pack_db_insert())
+            db_data)
         self.commit()
+        self.num_blocks += 1
+        self.pubkeys.add(block.public_key.encode('hex'))
+        self.total_db_size += 260 + len(db_data[0]) + len(db_data[1])
 
         if self.my_blocks_cache and (block.public_key == self.my_pk or block.link_public_key == self.my_pk):
             self.my_blocks_cache.add(block)
@@ -287,6 +305,29 @@ class NoodleDB(Database):
                                           fetch_all=True))
             return [self.get_block_class(db_item[0])(db_item) for db_item in db_result]
 
+    def get_statistics(self):
+        """
+        Return generic statistics of the TrustChain database.
+        """
+        return {
+            'num_blocks': self.num_blocks,
+            'num_peers': len(self.pubkeys),
+            'size': self.total_db_size
+        }
+
+    def get_types_statistics(self):
+        """
+        Return information regarding the different block types that are in the TrustChain database.
+        """
+        res = list(self.execute(u"SELECT type, COUNT(*) FROM blocks GROUP BY type"))
+        block_types_info = []
+        for block_type_info in res:
+            block_types_info.append({
+                "type": block_type_info[0],
+                "count": block_type_info[1]
+            })
+        return block_types_info
+
     def get_recent_blocks(self, limit=10, offset=0):
         """
         Return the most recent blocks in the TrustChain database.
@@ -349,6 +390,35 @@ class NoodleDB(Database):
         count = list(self.execute(u"SELECT COUNT(*) FROM double_spends WHERE public_key = ?",
                                   (database_blob(public_key),)))[0][0]
         return count > 0
+
+    def get_block_creation_daily_statistics(self):
+        """
+        Return daily statistics about block creation.
+        """
+        query = u"select strftime('%d-%m-%Y', block_timestamp/1000, 'unixepoch'), " \
+                u"COUNT(*) from blocks group by strftime('%d-%m-%Y', block_timestamp/1000, 'unixepoch') " \
+                u"ORDER BY block_timestamp"
+        res = list(self.execute(query))
+        creation_info = []
+        for day_info in res:
+            creation_info.append(day_info)
+        return creation_info
+
+    def get_interactions(self):
+        """
+        Return interactions of all users.
+        """
+        query = u"SELECT DISTINCT public_key, link_public_key FROM blocks WHERE link_sequence_number > 0"
+        res = list(self.execute(query))
+        user_interactions = {}
+        for user_interaction in res:
+            public_key = str(user_interaction[0]).encode('hex')
+            link_public_key = str(user_interaction[1]).encode('hex')
+            if public_key not in user_interactions:
+                user_interactions[public_key] = []
+            user_interactions[public_key].append(link_public_key)
+
+        return user_interactions
 
     def get_sql_header(self):
         """
