@@ -2,8 +2,9 @@ from __future__ import absolute_import
 
 from binascii import unhexlify
 
-from twisted.web import http
+from twisted.web import http, resource
 
+from . import json_util as json
 from .base_endpoint import BaseEndpoint
 from ..attestation.trustchain.community import TrustChainCommunity
 
@@ -18,12 +19,57 @@ class TrustchainEndpoint(BaseEndpoint):
 
         trustchain_overlays = [overlay for overlay in session.overlays if isinstance(overlay, TrustChainCommunity)]
         if trustchain_overlays:
+            self.putChild(b"statistics", TrustchainStatisticsEndpoint(trustchain_overlays[0]))
             self.putChild(b"recent", TrustchainRecentEndpoint(trustchain_overlays[0]))
             self.putChild(b"blocks", TrustchainBlocksEndpoint(trustchain_overlays[0]))
             self.putChild(b"users", TrustchainUsersEndpoint(trustchain_overlays[0]))
 
 
-class TrustchainRecentEndpoint(BaseEndpoint):
+class TrustchainStatisticsEndpoint(resource.Resource):
+
+    def __init__(self, trustchain):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+
+        self.putChild(b"types", TrustchainStatisticsTypesEndpoint(self.trustchain))
+        self.putChild(b"block_creation", TrustChainStatisticsCreationEndpoint(self.trustchain))
+        self.putChild(b"interactions", TrustchainStatisticsInteractionsEndpoint(self.trustchain))
+
+    def render_GET(self, request):
+        return json.dumps({"statistics": self.trustchain.persistence.get_statistics()})
+
+
+class TrustchainStatisticsTypesEndpoint(resource.Resource):
+
+    def __init__(self, trustchain):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+
+    def render_GET(self, request):
+        return json.dumps({"types": self.trustchain.persistence.get_types_statistics()})
+
+
+class TrustChainStatisticsCreationEndpoint(resource.Resource):
+
+    def __init__(self, trustchain):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+
+    def render_GET(self, request):
+        return json.dumps({"statistics": self.trustchain.persistence.get_block_creation_daily_statistics()})
+
+
+class TrustchainStatisticsInteractionsEndpoint(resource.Resource):
+
+    def __init__(self, trustchain):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+
+    def render_GET(self, request):
+        return json.dumps({"interactions": self.trustchain.persistence.get_interactions()})
+
+
+class TrustchainRecentEndpoint(resource.Resource):
 
     def __init__(self, trustchain):
         super(TrustchainRecentEndpoint, self).__init__()
