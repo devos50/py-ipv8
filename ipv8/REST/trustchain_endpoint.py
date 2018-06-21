@@ -19,9 +19,55 @@ class TrustchainEndpoint(resource.Resource):
 
         trustchain_overlays = [overlay for overlay in session.overlays if isinstance(overlay, TrustChainCommunity)]
         if trustchain_overlays:
+            self.putChild("statistics", TrustchainStatisticsEndpoint(trustchain_overlays[0]))
             self.putChild("recent", TrustchainRecentEndpoint(trustchain_overlays[0]))
             self.putChild("blocks", TrustchainBlocksEndpoint(trustchain_overlays[0]))
             self.putChild("users", TrustchainUsersEndpoint(trustchain_overlays[0]))
+            self.putChild("missing", TrustchainMissingEndpoint(trustchain_overlays[0]))
+
+
+class TrustchainStatisticsEndpoint(resource.Resource):
+
+    def __init__(self, trustchain):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+
+        self.putChild("types", TrustchainStatisticsTypesEndpoint(self.trustchain))
+        self.putChild("block_creation", TrustChainStatisticsCreationEndpoint(self.trustchain))
+        self.putChild("interactions", TrustchainStatisticsInteractionsEndpoint(self.trustchain))
+
+    def render_GET(self, request):
+        return json.dumps({"statistics": self.trustchain.persistence.get_statistics()})
+
+
+class TrustchainStatisticsTypesEndpoint(resource.Resource):
+
+    def __init__(self, trustchain):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+
+    def render_GET(self, request):
+        return json.dumps({"types": self.trustchain.persistence.get_types_statistics()})
+
+
+class TrustChainStatisticsCreationEndpoint(resource.Resource):
+
+    def __init__(self, trustchain):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+
+    def render_GET(self, request):
+        return json.dumps({"statistics": self.trustchain.persistence.block_creation_statistics})
+
+
+class TrustchainStatisticsInteractionsEndpoint(resource.Resource):
+
+    def __init__(self, trustchain):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+
+    def render_GET(self, request):
+        return json.dumps({"interactions": self.trustchain.persistence.get_interactions()})
 
 
 class TrustchainRecentEndpoint(resource.Resource):
@@ -33,14 +79,22 @@ class TrustchainRecentEndpoint(resource.Resource):
     def render_GET(self, request):
         limit = 10
         offset = 0
+        max_time = 0
+        block_type = None
         if request.args and 'limit' in request.args:
             limit = int(request.args['limit'][0])
 
         if request.args and 'offset' in request.args:
             offset = int(request.args['offset'][0])
 
+        if request.args and 'maxtime' in request.args:
+            max_time = int(request.args['maxtime'][0])
+
+        if request.args and 'type' in request.args:
+            block_type = request.args['type'][0]
+
         return json.dumps({"blocks": [dict(block) for block in
-                                      self.trustchain.persistence.get_recent_blocks(limit=limit, offset=offset)]})
+                                      self.trustchain.persistence.get_recent_blocks(limit=limit, offset=offset, max_time=max_time, block_type=block_type)]})
 
 
 class TrustchainBlocksEndpoint(resource.Resource):
@@ -121,6 +175,9 @@ class TrustchainSpecificUserBlocksEndpoint(resource.Resource):
         except TypeError:
             self.pub_key = None
 
+    def getChild(self, path, request):
+        return TrustchainSpecificUserBlockEndpoint(self.trustchain, self.pub_key, path)
+
     def render_GET(self, request):
         if not self.pub_key:
             request.setResponseCode(http.NOT_FOUND)
@@ -140,3 +197,41 @@ class TrustchainSpecificUserBlocksEndpoint(resource.Resource):
             blocks_list.append(block_dict)
 
         return json.dumps({"blocks": blocks_list})
+
+
+class TrustchainSpecificUserBlockEndpoint(resource.Resource):
+
+    def __init__(self, trustchain, pub_key, seq_num):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+        self.pub_key = pub_key
+        self.seq_num = int(seq_num)
+
+    def render_GET(self, request):
+        if not self.pub_key:
+            request.setResponseCode(http.NOT_FOUND)
+            return json.dumps({"error": "the user with the provided public key could not be found"})
+
+        block = self.trustchain.persistence.get(self.pub_key, self.seq_num)
+        if not block:
+            request.setResponseCode(http.NOT_FOUND)
+            return json.dumps({"error": "the block with the provided hash could not be found"})
+
+        block_dict = dict(block)
+
+        # Fetch the linked block if available
+        linked_block = self.trustchain.persistence.get_linked(block)
+        if linked_block:
+            block_dict["linked"] = dict(linked_block)
+
+        return json.dumps({"block": block_dict})
+
+
+class TrustchainMissingEndpoint(resource.Resource):
+
+    def __init__(self, trustchain):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+
+    def render_GET(self, request):
+        return json.dumps({"missing": self.trustchain.persistence.get_missing_sequence_numbers()})

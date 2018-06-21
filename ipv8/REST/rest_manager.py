@@ -49,6 +49,7 @@ class RESTRequest(server.Request):
     def __init__(self, *args, **kw):
         server.Request.__init__(self, *args, **kw)
         self._logger = logging.getLogger(self.__class__.__name__)
+        self.responseHeaders.addRawHeader('Access-Control-Allow-Origin', '*')
 
     def processingFailed(self, failure):
         self._logger.exception(failure)

@@ -8,6 +8,8 @@ import os
 
 from six import text_type
 
+from twisted.internet.task import LoopingCall
+
 from ...database import database_blob, Database
 from .block import TrustChainBlock
 
@@ -21,7 +23,7 @@ class TrustChainDB(Database):
     Connection layer to SQLiteDB.
     Ensures a proper DB schema on startup.
     """
-    LATEST_DB_VERSION = 7
+    LATEST_DB_VERSION = 9
 
     def __init__(self, working_directory, db_name):
         """
@@ -40,6 +42,38 @@ class TrustChainDB(Database):
         self.block_types = {}
         self.open()
 
+        # Pre-load some data to speed up queries
+        self.num_blocks = list(self.execute(u"SELECT COUNT(*) FROM blocks"))[0][0]
+        self.pubkeys = set()
+        for row in self.execute(u"SELECT DISTINCT public_key FROM blocks"):
+            pub_key = str(row[0]).encode('hex')
+            self.pubkeys.add(pub_key)
+        var_sizes = list(self.execute(u"SELECT SUM(LENGTH(type)), SUM(LENGTH(tx)) FROM blocks"))[0]
+        if var_sizes[0] != None:
+            self.total_db_size = 260 * self.num_blocks + var_sizes[0] + var_sizes[1]
+        else:
+            self.total_db_size = 0
+
+        self._logger.info("Loaded TrustChain database information in memory")
+
+        self.block_creation_statistics = None
+        self.tx_rate = 0.0
+
+        # Schedule construction of creation statistics every five minutes
+        self.build_statistics_lc = LoopingCall(self.build_statistics)
+        self.build_statistics_lc.start(3600, now=True)
+
+    def build_statistics(self):
+        """
+        Build the statistics.
+        """
+        self.block_creation_statistics = self.get_block_creation_daily_statistics()
+
+        # Get the average transaction rate
+        self.tx_rate = list(self.execute(u"SELECT COUNT()/(24.0*3600.0) FROM blocks WHERE "
+                                         u"block_timestamp >= CAST((julianday('now') - 2440587.5)*86400000-24*3600*1000 AS INTEGER) "
+                                         u"AND block_timestamp <= CAST((julianday('now') - 2440587.5)*86400000 AS INTEGER)"))[0][0]
+
     def get_block_class(self, block_type):
         """
         Get the block class for a specific block type.
@@ -54,11 +88,15 @@ class TrustChainDB(Database):
         Persist a block
         :param block: The data that will be saved.
         """
+        db_data = block.pack_db_insert()
         self.execute(
             u"INSERT INTO blocks (type, tx, public_key, sequence_number, link_public_key,"
             u"link_sequence_number, previous_hash, signature, block_timestamp, block_hash) VALUES(?,?,?,?,?,?,?,?,?,?)",
-            block.pack_db_insert())
+            db_data)
         self.commit()
+        self.num_blocks += 1
+        self.pubkeys.add(block.public_key.encode('hex'))
+        self.total_db_size += 260 + len(db_data[0]) + len(db_data[1])
 
     def remove_block(self, block):
         """
@@ -231,6 +269,24 @@ class TrustChainDB(Database):
         else:
             return lowest_unknown, lowest_unknown
 
+    def get_missing_sequence_numbers(self):
+        """
+        Return a list of missing sequence numbers for all known public keys.
+        """
+        query = u"SELECT b1.sequence_number as sqnum, b1.public_key FROM blocks b1 WHERE NOT EXISTS " \
+                u"(SELECT b2.sequence_number FROM blocks b2 WHERE b2.sequence_number = b1.sequence_number - 1 AND " \
+                u"b2.public_key = b1.public_key) AND sqnum != 1 ORDER BY sqnum"
+        db_results = list(self.execute(query, tuple(), fetch_all=True))
+
+        missing_dict = {}
+        for db_result in db_results:
+            pub_key = str(db_result[1]).encode('hex')
+            if pub_key not in missing_dict:
+                missing_dict[pub_key] = []
+            missing_dict[pub_key].append(db_result[0] - 1)
+
+        return missing_dict
+
     def get_linked(self, block):
         """
         Get the block that is linked to the given block
@@ -263,11 +319,48 @@ class TrustChainDB(Database):
                                       fetch_all=True))
         return [self.get_block_class(db_item[0])(db_item) for db_item in db_result]
 
-    def get_recent_blocks(self, limit=10, offset=0):
+    def get_statistics(self):
+        """
+        Return generic statistics of the TrustChain database.
+        """
+        return {
+            'num_blocks': self.num_blocks,
+            'num_peers': len(self.pubkeys),
+            'size': self.total_db_size,
+            'tx_rate': self.tx_rate
+        }
+
+    def get_types_statistics(self):
+        """
+        Return information regarding the different block types that are in the TrustChain database.
+        """
+        res = list(self.execute(u"SELECT type, COUNT(*) FROM blocks GROUP BY type"))
+        block_types_info = []
+        for block_type_info in res:
+            block_types_info.append({
+                "type": block_type_info[0],
+                "count": block_type_info[1]
+            })
+        return block_types_info
+
+    def get_recent_blocks(self, limit=10, offset=0, max_time=0, block_type=None):
         """
         Return the most recent blocks in the TrustChain database.
         """
-        return self._getall(u"ORDER BY block_timestamp DESC LIMIT ? OFFSET ?", (limit, offset))
+        new_max_time = max_time
+        if max_time:
+            new_max_time += 5000  # Some tolerance
+
+        if max_time and block_type:
+            query = u"WHERE block_timestamp <= ? AND type = ? ORDER BY block_timestamp DESC LIMIT ? OFFSET ?", (new_max_time, block_type, limit, offset)
+        elif not max_time and block_type:
+            query = u"WHERE type = ? ORDER BY block_timestamp DESC LIMIT ? OFFSET ?", (block_type, limit, offset)
+        elif max_time and not block_type:
+            query = u"WHERE block_timestamp <= ? ORDER BY block_timestamp DESC LIMIT ? OFFSET ?", (new_max_time, limit, offset)
+        else:
+            query = u"ORDER BY block_timestamp DESC LIMIT ? OFFSET ?", (limit, offset)
+
+        return self._getall(*query)
 
     def get_users(self, limit=100):
         """
@@ -302,7 +395,34 @@ class TrustChainDB(Database):
                                   (database_blob(public_key),)))[0][0]
         return count > 0
 
+    def get_block_creation_daily_statistics(self):
+        """
+        Return daily statistics about block creation.
+        """
+        query = u"select strftime('%d-%m-%Y', block_timestamp/1000, 'unixepoch'), " \
+                u"COUNT(*) from blocks group by strftime('%d-%m-%Y', block_timestamp/1000, 'unixepoch') " \
+                u"ORDER BY block_timestamp"
+        res = list(self.execute(query))
+        creation_info = []
+        for day_info in res:
+            creation_info.append(day_info)
+        return creation_info
 
+    def get_interactions(self):
+        """
+        Return interactions of all users.
+        """
+        query = u"SELECT DISTINCT public_key, link_public_key FROM blocks WHERE link_sequence_number > 0"
+        res = list(self.execute(query))
+        user_interactions = {}
+        for user_interaction in res:
+            public_key = str(user_interaction[0]).encode('hex')
+            link_public_key = str(user_interaction[1]).encode('hex')
+            if public_key not in user_interactions:
+                user_interactions[public_key] = []
+            user_interactions[public_key].append(link_public_key)
+
+        return user_interactions
 
     def get_sql_header(self):
         """
@@ -348,6 +468,9 @@ class TrustChainDB(Database):
         CREATE INDEX IF NOT EXISTS link_pub_key_ind ON blocks (link_public_key);
         CREATE INDEX IF NOT EXISTS seq_num_ind ON blocks (sequence_number);
         CREATE INDEX IF NOT EXISTS link_seq_num_ind ON blocks (link_sequence_number);
+        CREATE INDEX IF NOT EXISTS timestamp_ind ON blocks (block_timestamp);
+        CREATE INDEX IF NOT EXISTS hash_ind ON blocks (block_hash);
+        CREATE INDEX IF NOT EXISTS type_ind ON blocks (type);
         """ % (self.get_sql_create_blocks_table("blocks", "public_key, sequence_number"),
                self.get_sql_create_blocks_table("double_spends", "public_key, sequence_number, block_hash"),
                str(self.LATEST_DB_VERSION))
