@@ -4,6 +4,7 @@ from .attestation_endpoint import AttestationEndpoint
 from .base_endpoint import BaseEndpoint
 from .dht_endpoint import DHTEndpoint
 from .isolation_endpoint import IsolationEndpoint
+from .events_endpoint import EventsEndpoint
 from .network_endpoint import NetworkEndpoint
 from .noblock_dht_endpoint import NoBlockDHTEndpoint
 from .overlays_endpoint import OverlaysEndpoint
@@ -32,3 +33,4 @@ class RootEndpoint(BaseEndpoint):
         self.putChild(b'overlays', OverlaysEndpoint(session))
         self.putChild(b'trustchain', TrustchainEndpoint(session))
         self.putChild(b'tunnel', TunnelEndpoint(session))
+        self.putChild(b'events', EventsEndpoint(session))
