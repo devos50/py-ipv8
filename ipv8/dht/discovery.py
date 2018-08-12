@@ -44,6 +44,7 @@ class DHTDiscoveryCommunity(DHTCommunity):
         auth, _, _ = self._ez_unpack_auth(PingRequestPayload, data)
         node = self.find_storing_node(auth.public_key_bin)
         if node:
+            self.logger.error("SETTING TIME of %s", node)
             node.last_query = time.time()
 
     def on_ping_response(self, source_address, data):
@@ -185,5 +186,5 @@ class DHTDiscoveryCommunity(DHTCommunity):
             for index in xrange(len(nodes) - 1, -1, -1):
                 node = nodes[index]
                 if now > node.last_query + 60:
-                    self.logger.debug('Deleting peer %s (key %s)', node, key.encode('hex'))
+                    self.logger.debug('Deleting peer %s (key %s) - %s %s', node, key.encode('hex'), now, node.last_query)
                     del self.store[key][index]
