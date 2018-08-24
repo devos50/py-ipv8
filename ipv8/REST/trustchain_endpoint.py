@@ -166,6 +166,9 @@ class TrustchainSpecificUserBlocksEndpoint(resource.Resource):
         except TypeError:
             self.pub_key = None
 
+    def getChild(self, path, request):
+        return TrustchainSpecificUserBlockEndpoint(self.trustchain, self.pub_key, path)
+
     def render_GET(self, request):
         if not self.pub_key:
             request.setResponseCode(http.NOT_FOUND)
@@ -185,3 +188,31 @@ class TrustchainSpecificUserBlocksEndpoint(resource.Resource):
             blocks_list.append(block_dict)
 
         return json.dumps({"blocks": blocks_list})
+
+
+class TrustchainSpecificUserBlockEndpoint(resource.Resource):
+
+    def __init__(self, trustchain, pub_key, seq_num):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+        self.pub_key = pub_key
+        self.seq_num = int(seq_num)
+
+    def render_GET(self, request):
+        if not self.pub_key:
+            request.setResponseCode(http.NOT_FOUND)
+            return json.dumps({"error": "the user with the provided public key could not be found"})
+
+        block = self.trustchain.persistence.get(self.pub_key, self.seq_num)
+        if not block:
+            request.setResponseCode(http.NOT_FOUND)
+            return json.dumps({"error": "the block with the provided hash could not be found"})
+
+        block_dict = dict(block)
+
+        # Fetch the linked block if available
+        linked_block = self.trustchain.persistence.get_linked(block)
+        if linked_block:
+            block_dict["linked"] = dict(linked_block)
+
+        return json.dumps({"block": block_dict})
