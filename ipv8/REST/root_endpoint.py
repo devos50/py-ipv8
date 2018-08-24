@@ -2,6 +2,7 @@ from __future__ import absolute_import
 
 from .attestation_endpoint import AttestationEndpoint
 from .base_endpoint import BaseEndpoint
+from .crawl_endpoint import CrawlEndpoint
 from .dht_endpoint import DHTEndpoint
 from .isolation_endpoint import IsolationEndpoint
 from .events_endpoint import EventsEndpoint
@@ -34,3 +35,4 @@ class RootEndpoint(BaseEndpoint):
         self.putChild(b'trustchain', TrustchainEndpoint(session))
         self.putChild(b'tunnel', TunnelEndpoint(session))
         self.putChild(b'events', EventsEndpoint(session))
+        self.putChild(b'crawl', CrawlEndpoint(session))
