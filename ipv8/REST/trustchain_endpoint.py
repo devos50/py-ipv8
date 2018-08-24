@@ -23,6 +23,7 @@ class TrustchainEndpoint(resource.Resource):
             self.putChild("recent", TrustchainRecentEndpoint(trustchain_overlays[0]))
             self.putChild("blocks", TrustchainBlocksEndpoint(trustchain_overlays[0]))
             self.putChild("users", TrustchainUsersEndpoint(trustchain_overlays[0]))
+            self.putChild("missing", TrustchainMissingEndpoint(trustchain_overlays[0]))
 
 
 class TrustchainStatisticsEndpoint(resource.Resource):
@@ -216,3 +217,13 @@ class TrustchainSpecificUserBlockEndpoint(resource.Resource):
             block_dict["linked"] = dict(linked_block)
 
         return json.dumps({"block": block_dict})
+
+
+class TrustchainMissingEndpoint(resource.Resource):
+
+    def __init__(self, trustchain):
+        resource.Resource.__init__(self)
+        self.trustchain = trustchain
+
+    def render_GET(self, request):
+        return json.dumps({"missing": self.trustchain.persistence.get_missing_sequence_numbers()})

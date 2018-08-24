@@ -249,6 +249,24 @@ class TrustChainDB(Database):
         else:
             return lowest_unknown, lowest_unknown
 
+    def get_missing_sequence_numbers(self):
+        """
+        Return a list of missing sequence numbers for all known public keys.
+        """
+        query = u"SELECT b1.sequence_number as sqnum, b1.public_key FROM blocks b1 WHERE NOT EXISTS " \
+                u"(SELECT b2.sequence_number FROM blocks b2 WHERE b2.sequence_number = b1.sequence_number - 1 AND " \
+                u"b2.public_key = b1.public_key) AND sqnum != 1 ORDER BY sqnum"
+        db_results = list(self.execute(query, tuple(), fetch_all=True))
+
+        missing_dict = {}
+        for db_result in db_results:
+            pub_key = str(db_result[1]).encode('hex')
+            if pub_key not in missing_dict:
+                missing_dict[pub_key] = []
+            missing_dict[pub_key].append(db_result[0] - 1)
+
+        return missing_dict
+
     def get_linked(self, block):
         """
         Get the block that is linked to the given block
