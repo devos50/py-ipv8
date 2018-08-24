@@ -3,6 +3,7 @@ from __future__ import absolute_import
 from twisted.web import resource
 
 from .attestation_endpoint import AttestationEndpoint
+from .crawl_endpoint import CrawlEndpoint
 from .dht_endpoint import DHTEndpoint
 from .events_endpoint import EventsEndpoint
 from .network_endpoint import NetworkEndpoint
@@ -31,3 +32,4 @@ class RootEndpoint(resource.Resource):
         self.putChild(b'dht', DHTEndpoint(session))
         self.putChild(b'tunnel', TunnelEndpoint(session))
         self.putChild(b'events', EventsEndpoint(session))
+        self.putChild(b'crawl', CrawlEndpoint(session))
