@@ -6,6 +6,8 @@ from __future__ import absolute_import
 from binascii import hexlify
 import os
 
+from twisted.internet.threads import deferToThread
+
 from ...database import database_blob, Database
 from .block import TrustChainBlock
 from ...util import is_unicode
@@ -53,11 +55,13 @@ class TrustChainDB(Database):
         Persist a block
         :param block: The data that will be saved.
         """
-        self.execute(
-            u"INSERT INTO blocks (type, tx, public_key, sequence_number, link_public_key,"
-            u"link_sequence_number, previous_hash, signature, block_timestamp, block_hash) VALUES(?,?,?,?,?,?,?,?,?,?)",
-            block.pack_db_insert())
-        self.commit()
+        def add_block_tp():
+            self.execute(
+                u"INSERT INTO blocks (type, tx, public_key, sequence_number, link_public_key,"
+                u"link_sequence_number, previous_hash, signature, block_timestamp, block_hash) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                block.pack_db_insert())
+            self.commit()
+        return deferToThread(add_block_tp)
 
     def remove_block(self, block):
         """

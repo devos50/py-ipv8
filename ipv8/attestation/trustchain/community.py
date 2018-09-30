@@ -12,7 +12,7 @@ import struct
 from threading import RLock
 
 from twisted.internet import reactor
-from twisted.internet.defer import Deferred, succeed, fail
+from twisted.internet.defer import Deferred, succeed, fail, inlineCallbacks, returnValue
 from twisted.internet.task import LoopingCall
 
 from ...attestation.trustchain.settings import TrustChainSettings
@@ -200,6 +200,7 @@ class TrustChainCommunity(Community):
         self.sign_block(self.my_peer, linked=source, public_key=public_key, block_type=block_type,
                         additional_info=additional_info)
 
+    @inlineCallbacks
     @synchronized
     def sign_block(self, peer, public_key=EMPTY_PK, block_type=b'unknown', transaction=None, linked=None,
                    additional_info=None):
@@ -231,7 +232,7 @@ class TrustChainCommunity(Community):
         assert transaction is None or isinstance(transaction, dict), "Transaction should be a dictionary"
         assert additional_info is None or isinstance(additional_info, dict), "Additional info should be a dictionary"
 
-        self.persistence_integrity_check()
+        yield self.persistence_integrity_check()
         block_type = linked.type if linked else block_type
         block = self.get_block_class(block_type).create(block_type, transaction, self.persistence,
                                                         self.my_peer.public_key.key_to_bin(),
@@ -244,17 +245,17 @@ class TrustChainCommunity(Community):
                          hexlify(block.link_public_key)[-8:], block, validation)
         if validation[0] != ValidationResult.partial_next and validation[0] != ValidationResult.valid:
             self.logger.error("Signed block did not validate?! Result %s", repr(validation))
-            return fail(RuntimeError("Signed block did not validate."))
+            returnValue(fail(RuntimeError("Signed block did not validate.")))
 
         if not self.persistence.contains(block):
-            self.persistence.add_block(block)
+            yield self.persistence.add_block(block)
             self.notify_listeners(block)
 
         # This is a source block with no counterparty
         if not peer and public_key == ANY_COUNTERPARTY_PK:
             if self.settings.broadcast_blocks:
                 self.send_block(block)
-            return
+            returnValue(None)
 
         # If there is a counterparty to sign, we send it
         self.send_block(block, address=peer.address)
@@ -268,18 +269,19 @@ class TrustChainCommunity(Community):
             if self.settings.broadcast_blocks:
                 self.send_block(block)
 
-            return succeed((block, None)) if public_key == ANY_COUNTERPARTY_PK else succeed((block, linked))
+            returnValue((block, None) if public_key == ANY_COUNTERPARTY_PK else (block, linked))
         elif not linked:
             # We keep track of this outstanding sign request.
             sign_deferred = Deferred()
             self.request_cache.add(HalfBlockSignCache(self, block, sign_deferred))
-            return sign_deferred
+            blocks = yield sign_deferred
+            returnValue(blocks)
         else:
             # We return a deferred that fires immediately with both half blocks.
             if self.settings.broadcast_blocks:
                 self.send_block_pair(linked, block)
 
-            return succeed((linked, block))
+            returnValue((linked, block))
 
     @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockPayload)
@@ -287,9 +289,13 @@ class TrustChainCommunity(Community):
         """
         We've received a half block, either because we sent a SIGNED message to some one or we are crawling
         """
-        peer = Peer(payload.public_key, source_address)
-        block = self.get_block_class(payload.type).from_payload(payload, self.serializer)
-        self.process_half_block(block, peer)
+        @inlineCallbacks
+        def process():
+            peer = Peer(payload.public_key, source_address)
+            block = self.get_block_class(payload.type).from_payload(payload, self.serializer)
+            yield self.process_half_block(block, peer)
+
+        reactor.callFromThread(process)
 
     @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockBroadcastPayload)
@@ -297,12 +303,16 @@ class TrustChainCommunity(Community):
         """
         We received a half block, part of a broadcast. Disseminate it further.
         """
-        payload.ttl -= 1
-        block = self.get_block_class(payload.type).from_payload(payload, self.serializer)
-        self.validate_persist_block(block)
+        @inlineCallbacks
+        def process():
+            payload.ttl -= 1
+            block = self.get_block_class(payload.type).from_payload(payload, self.serializer)
+            yield self.validate_persist_block(block)
 
-        if block.block_id not in self.relayed_broadcasts and payload.ttl > 0:
-            self.send_block(block, ttl=payload.ttl - 1)
+            if block.block_id not in self.relayed_broadcasts and payload.ttl > 0:
+                self.send_block(block, ttl=payload.ttl - 1)
+
+        reactor.callFromThread(process)
 
     @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockPairPayload)
@@ -310,9 +320,13 @@ class TrustChainCommunity(Community):
         """
         We received a block pair message.
         """
-        block1, block2 = self.get_block_class(payload.type1).from_pair_payload(payload, self.serializer)
-        self.validate_persist_block(block1)
-        self.validate_persist_block(block2)
+        @inlineCallbacks
+        def process():
+            block1, block2 = self.get_block_class(payload.type1).from_pair_payload(payload, self.serializer)
+            yield self.validate_persist_block(block1)
+            yield self.validate_persist_block(block2)
+
+        reactor.callFromThread(process)
 
     @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockPairBroadcastPayload)
@@ -321,13 +335,19 @@ class TrustChainCommunity(Community):
         We received a half block pair, part of a broadcast. Disseminate it further.
         """
         payload.ttl -= 1
-        block1, block2 = self.get_block_class(payload.type1).from_pair_payload(payload, self.serializer)
-        self.validate_persist_block(block1)
-        self.validate_persist_block(block2)
 
-        if block1.block_id not in self.relayed_broadcasts and payload.ttl > 0:
-            self.send_block_pair(block1, block2, ttl=payload.ttl - 1)
+        @inlineCallbacks
+        def process():
+            block1, block2 = self.get_block_class(payload.type1).from_pair_payload(payload, self.serializer)
+            yield self.validate_persist_block(block1)
+            yield self.validate_persist_block(block2)
 
+            if block1.block_id not in self.relayed_broadcasts and payload.ttl > 0:
+                self.send_block_pair(block1, block2, ttl=payload.ttl - 1)
+
+        reactor.callFromThread(process)
+
+    @inlineCallbacks
     def validate_persist_block(self, block):
         """
         Validate a block and if it's valid, persist it. Return the validation result.
@@ -338,10 +358,10 @@ class TrustChainCommunity(Community):
         if validation[0] == ValidationResult.invalid:
             pass
         elif not self.persistence.contains(block):
-            self.persistence.add_block(block)
+            yield self.persistence.add_block(block)
             self.notify_listeners(block)
 
-        return validation
+        returnValue(validation)
 
     def notify_listeners(self, block):
         """
@@ -353,12 +373,13 @@ class TrustChainCommunity(Community):
         for listener in self.listeners_map[block.type]:
             listener.received_block(block)
 
+    @inlineCallbacks
     @synchronized
     def process_half_block(self, blk, peer):
         """
         Process a received half block.
         """
-        validation = self.validate_persist_block(blk)
+        validation = yield self.validate_persist_block(blk)
         self.logger.info("Block validation result %s, %s, (%s)", validation[0], validation[1], blk)
         if validation[0] == ValidationResult.invalid:
             return
@@ -375,14 +396,14 @@ class TrustChainCommunity(Community):
         if blk.link_sequence_number != UNKNOWN_SEQ or \
                         blk.link_public_key != self.my_peer.public_key.key_to_bin() or \
                         self.persistence.get_linked(blk) is not None:
-            return
+            returnValue(None)
 
         self.logger.info("Received request block addressed to us (%s)", blk)
 
         # determine if we want to sign this block
         if not self.should_sign(blk):
             self.logger.info("Not signing block %s", blk)
-            return
+            returnValue(None)
 
         # It is important that the request matches up with its previous block, gaps cannot be tolerated at
         # this point. We already dropped invalids, so here we delay this message if the result is partial,
@@ -525,9 +546,10 @@ class TrustChainCommunity(Community):
         Answer a peer with crawl responses.
         """
         for ind, block in enumerate(blocks):
-            self.send_crawl_response(block, crawl_id, ind + 1, len(blocks), peer)
+            yield self.send_crawl_response(block, crawl_id, ind + 1, len(blocks), peer)
         self.logger.info("Sent %d blocks", len(blocks))
 
+    @inlineCallbacks
     @synchronized
     def sanitize_database(self):
         """
@@ -542,7 +564,7 @@ class TrustChainCommunity(Community):
             # There is nothing to corrupt, we're at the genesis block.
             self.logger.debug("No latest block found when trying to recover database!")
             return
-        validation = self.validate_persist_block(block)
+        validation = yield self.validate_persist_block(block)
         while validation[0] != ValidationResult.partial_next and validation[0] != ValidationResult.valid:
             # The latest block is invalid, remove it.
             self.persistence.remove_block(block)
@@ -551,31 +573,33 @@ class TrustChainCommunity(Community):
             if not block:
                 # Back to the genesis
                 break
-            validation = self.validate_persist_block(block)
+            validation = yield self.validate_persist_block(block)
         self.logger.error("Recovered database, our last block is now %d", block.sequence_number if block else 0)
 
+    @inlineCallbacks
     def persistence_integrity_check(self):
         """
         Perform an integrity check of our own chain. Recover it if needed.
         """
         block = self.persistence.get_latest(self.my_peer.public_key.key_to_bin())
         if not block:
-            return
-        validation = self.validate_persist_block(block)
+            returnValue(None)
+        validation = yield self.validate_persist_block(block)
         if validation[0] != ValidationResult.partial_next and validation[0] != ValidationResult.valid:
             self.logger.error("Our chain did not validate. Result %s", repr(validation))
-            self.sanitize_database()
+            yield self.sanitize_database()
 
+    @inlineCallbacks
     def send_crawl_response(self, block, crawl_id, index, total_count, peer):
         self.logger.debug("Sending block for crawl request to %s (%s)", peer, block)
 
         # Don't answer with any invalid blocks.
-        validation = self.validate_persist_block(block)
+        validation = yield self.validate_persist_block(block)
         if validation[0] == ValidationResult.invalid and total_count > 0:
             # We send an empty block to the crawl requester if no blocks should be sent back
             self.logger.error("Not sending crawl response, the block is invalid. Result %s", repr(validation))
             self.persistence_integrity_check()
-            return
+            returnValue(None)
 
         global_time = self.claim_global_time()
         payload = CrawlResponsePayload.from_crawl(block, crawl_id, index, total_count).to_pack_list()
