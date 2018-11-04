@@ -336,12 +336,6 @@ class TrustChainBlock(object):
                 result.err("No link to linked block")
             elif self.public_key != link.link_public_key and link.link_public_key != ANY_COUNTERPARTY_PK:
                 result.err("Public key mismatch on linked block")
-            elif self.link_sequence_number != UNKNOWN_SEQ:
-                # self counter signs another block (link). If link has a linked block that is not equal to self,
-                # then self is fraudulent, since it tries to countersign a block that is already countersigned
-                linklinked = database.get_linked(link)
-                if linklinked is not None and linklinked.hash != self.hash:
-                    result.err("Double countersign fraud")
 
     def update_chain_consistency(self, prev_blk, next_blk, result):
         """
