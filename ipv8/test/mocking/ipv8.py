@@ -12,8 +12,8 @@ from .discovery import MockWalk
 
 class MockIPv8(object):
 
-    def __init__(self, crypto_curve, overlay_class, create_trustchain=False, create_dht=False, enable_statistics=False,
-                 *args, **kwargs):
+    def __init__(self, crypto_curve, overlay_class, create_trustchain=False, trustchain_class=TrustChainCommunity,
+                 create_dht=False, enable_statistics=False, *args, **kwargs):
         self.endpoint = AutoMockEndpoint()
         self.endpoint.open()
 
@@ -27,8 +27,7 @@ class MockIPv8(object):
         # Load a TrustChain community if specified
         self.trustchain = None
         if create_trustchain:
-            self.trustchain = TrustChainCommunity(self.my_peer, self.endpoint, self.network,
-                                                  working_directory=u":memory:")
+            self.trustchain = trustchain_class(self.my_peer, self.endpoint, self.network, working_directory=u":memory:")
             kwargs.update({'trustchain': self.trustchain})
 
         # Load a DHT community if specified

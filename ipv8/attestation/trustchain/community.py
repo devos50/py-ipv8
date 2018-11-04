@@ -200,8 +200,8 @@ class TrustChainCommunity(Community):
         """
         public_key = source.public_key if public_key is None else public_key
 
-        self.sign_block(self.my_peer, linked=source, public_key=public_key, block_type=block_type,
-                        additional_info=additional_info)
+        return self.sign_block(self.my_peer, linked=source, public_key=public_key, block_type=block_type,
+                               additional_info=additional_info)
 
     @synchronized
     def sign_block(self, peer, public_key=EMPTY_PK, block_type=b'unknown', transaction=None, linked=None,
@@ -224,9 +224,9 @@ class TrustChainCommunity(Community):
             "should be that reserved for any counterpary."
         assert transaction is None and linked is not None or transaction is not None and linked is None, \
             "Either provide a linked block or a transaction, not both %s, %s" % (peer, self.my_peer)
-        assert additional_info is None or additional_info is not None and linked is not None and \
-               transaction is None and peer == self.my_peer and public_key == linked.public_key, \
-            "Either no additional info is provided or one provides it for a linked block"
+        #assert additional_info is None or additional_info is not None and linked is not None and \
+        #       transaction is None and peer == self.my_peer and public_key == linked.public_key, \
+        #    "Either no additional info is provided or one provides it for a linked block"
         assert linked is None or linked.link_public_key == self.my_peer.public_key.key_to_bin() or \
                linked.link_public_key == ANY_COUNTERPARTY_PK, "Cannot counter sign block not addressed to self"
         assert linked is None or linked.link_sequence_number == UNKNOWN_SEQ, \
