@@ -79,14 +79,22 @@ class TrustchainRecentEndpoint(resource.Resource):
     def render_GET(self, request):
         limit = 10
         offset = 0
+        max_time = 0
+        block_type = None
         if request.args and 'limit' in request.args:
             limit = int(request.args['limit'][0])
 
         if request.args and 'offset' in request.args:
             offset = int(request.args['offset'][0])
 
+        if request.args and 'maxtime' in request.args:
+            max_time = int(request.args['maxtime'][0])
+
+        if request.args and 'type' in request.args:
+            block_type = request.args['type'][0]
+
         return json.dumps({"blocks": [dict(block) for block in
-                                      self.trustchain.persistence.get_recent_blocks(limit=limit, offset=offset)]})
+                                      self.trustchain.persistence.get_recent_blocks(limit=limit, offset=offset, max_time=max_time, block_type=block_type)]})
 
 
 class TrustchainBlocksEndpoint(resource.Resource):
