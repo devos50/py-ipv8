@@ -77,15 +77,23 @@ class TrustchainRecentEndpoint(BaseEndpoint):
     def render_GET(self, request):
         limit = 10
         offset = 0
+        max_time = 0
+        block_type = None
         if request.args and b'limit' in request.args:
             limit = int(request.args[b'limit'][0])
 
         if request.args and b'offset' in request.args:
             offset = int(request.args[b'offset'][0])
 
+        if request.args and b'maxtime' in request.args:
+            max_time = int(request.args[b'maxtime'][0])
+
+        if request.args and b'type' in request.args:
+            block_type = request.args[b'type'][0]
+
         return self.twisted_dumps({
             "blocks": [dict(block) for block in
-                       self.trustchain.persistence.get_recent_blocks(limit=limit, offset=offset)]
+                       self.trustchain.persistence.get_recent_blocks(limit=limit, offset=offset, max_time=max_time, block_type=block_type)]
         })
 
 
