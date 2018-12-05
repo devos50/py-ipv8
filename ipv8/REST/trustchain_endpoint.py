@@ -57,7 +57,7 @@ class TrustChainStatisticsCreationEndpoint(resource.Resource):
         self.trustchain = trustchain
 
     def render_GET(self, request):
-        return json.dumps({"statistics": self.trustchain.persistence.get_block_creation_daily_statistics()})
+        return json.dumps({"statistics": self.trustchain.persistence.block_creation_statistics})
 
 
 class TrustchainStatisticsInteractionsEndpoint(resource.Resource):

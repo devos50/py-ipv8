@@ -8,6 +8,8 @@ from binascii import hexlify
 
 from six import text_type
 
+from twisted.internet.task import LoopingCall
+
 from .block import TrustChainBlock
 from ...attestation.trustchain.blockcache import BlockCache
 from ...database import Database, database_blob
@@ -59,6 +61,24 @@ class TrustChainDB(Database):
             self.total_db_size = 0
 
         self._logger.info("Loaded TrustChain database information in memory")
+
+        self.block_creation_statistics = None
+        self.tx_rate = 0.0
+
+        # Schedule construction of creation statistics every five minutes
+        self.build_statistics_lc = LoopingCall(self.build_statistics)
+        self.build_statistics_lc.start(3600, now=True)
+
+    def build_statistics(self):
+        """
+        Build the statistics.
+        """
+        self.block_creation_statistics = self.get_block_creation_daily_statistics()
+
+        # Get the average transaction rate
+        self.tx_rate = list(self.execute(u"SELECT COUNT()/(24.0*3600.0) FROM blocks WHERE "
+                                         u"block_timestamp >= CAST((julianday('now') - 2440587.5)*86400000-24*3600*1000 AS INTEGER) "
+                                         u"AND block_timestamp <= CAST((julianday('now') - 2440587.5)*86400000 AS INTEGER)"))[0][0]
 
     def get_block_class(self, block_type):
         """
@@ -330,7 +350,8 @@ class TrustChainDB(Database):
         return {
             'num_blocks': self.num_blocks,
             'num_peers': len(self.pubkeys),
-            'size': self.total_db_size
+            'size': self.total_db_size,
+            'tx_rate': self.tx_rate
         }
 
     def get_types_statistics(self):
