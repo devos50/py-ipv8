@@ -23,7 +23,7 @@ class TrustChainDB(Database):
     Connection layer to SQLiteDB.
     Ensures a proper DB schema on startup.
     """
-    LATEST_DB_VERSION = 8
+    LATEST_DB_VERSION = 9
 
     def __init__(self, working_directory, db_name, my_pk=None):
         """
@@ -518,6 +518,7 @@ class TrustChainDB(Database):
         CREATE INDEX IF NOT EXISTS link_seq_num_ind ON blocks (link_sequence_number);
         CREATE INDEX IF NOT EXISTS timestamp_ind ON blocks (block_timestamp);
         CREATE INDEX IF NOT EXISTS hash_ind ON blocks (block_hash);
+        CREATE INDEX IF NOT EXISTS type_ind ON blocks (type);
         """ % (self.get_sql_create_blocks_table("blocks", "public_key, sequence_number"),
                self.get_sql_create_blocks_table("double_spends", "public_key, sequence_number, block_hash"),
                str(self.LATEST_DB_VERSION))
