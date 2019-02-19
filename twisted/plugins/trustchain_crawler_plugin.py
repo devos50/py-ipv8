@@ -11,6 +11,9 @@ import logging
 
 import yappi
 
+from ipv8.attestation.trustchain.community import TrustChainCrawlerCommunity, TrustChainBackwardsCrawlerCommunity
+from ipv8.attestation.trustchain.database import TrustChainDB
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from twisted.application.service import IServiceMaker, MultiService
@@ -28,7 +31,7 @@ from ipv8.REST.rest_manager import RESTManager
 
 class Options(usage.Options):
     optParameters = [
-        ["statedir", "s", None, "Use an alternate statedir", str],
+        ["statedir", "s", '.', "Use an alternate statedir", str],
         ["apiport", "p", 8085, "Use an alternative port for the REST api", int],
     ]
     optFlags = [
@@ -92,20 +95,21 @@ crawler_config = {
                 ('resolve_dns_bootstrap_addresses', )
             ]
         }, {
-            'class': 'TrustChainCommunity',
+            'class': 'TrustChainCrawlerCommunity',
             'key': "my peer",
-            'walkers': [
-                {
-                    'strategy': "RandomWalk",
-                    'peers': -1,
-                    'init': {
-                        'timeout': 3.0
-                    }
-                },
-            ],
+            'walkers': [],
             'initialize': {
                 'max_peers': -1,
-                'settings': tc_settings
+                'settings': tc_settings,
+            },
+            'on_start': [],
+        }, {
+            'class': 'TrustChainBackwardsCrawlerCommunity',
+            'key': "my peer",
+            'walkers': [],
+            'initialize': {
+                'max_peers': -1,
+                'settings': tc_settings,
             },
             'on_start': [],
         },
@@ -126,6 +130,7 @@ class TrustchainCrawlerServiceMaker(object):
         self.ipv8 = None
         self.restapi = None
         self._stopping = False
+        self.tc_persistence = None
 
     def start_crawler(self, options):
         """
@@ -139,21 +144,28 @@ class TrustchainCrawlerServiceMaker(object):
         stderr_handler.setFormatter(logging.Formatter("%(asctime)s:%(levelname)s:%(message)s"))
         root.addHandler(stderr_handler)
 
+        # Open the database
+        self.tc_persistence = TrustChainDB(options["statedir"], 'trustchain')
+
         if options["statedir"]:
             # If we use a custom state directory, update various variables
             for key in crawler_config["keys"]:
                 key["file"] = os.path.join(options["statedir"], key["file"])
 
             for community in crawler_config["overlays"]:
-                if community["class"] == "TrustChainCommunity":
-                    community["initialize"]["working_directory"] = options["statedir"]
+                if community["class"] == "TrustChainCrawlerCommunity" or community["class"] == "TrustChainBackwardsCrawlerCommunity":
+                    community["initialize"]["persistence"] = self.tc_persistence
 
         if 'testnet' in options and options['testnet']:
             for community in crawler_config["overlays"]:
                 if community["class"] == "TrustChainCommunity":
                     community["class"] = "TrustChainTestnetCommunity"
 
-        self.ipv8 = IPv8(crawler_config)
+        extra_communities = {
+            "TrustChainCrawlerCommunity": TrustChainCrawlerCommunity,
+            "TrustChainBackwardsCrawlerCommunity": TrustChainBackwardsCrawlerCommunity
+        }
+        self.ipv8 = IPv8(crawler_config, extra_communities=extra_communities)
 
         def signal_handler(sig, _):
             msg("Received shut down signal %s" % sig)
