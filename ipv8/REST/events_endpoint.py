@@ -25,7 +25,7 @@ class EventsEndpoint(resource.Resource, BlockListener):
         # Register as block listener
         trustchain_overlays = [overlay for overlay in session.overlays if isinstance(overlay, TrustChainCommunity)]
         if trustchain_overlays:
-            trustchain_overlays[0].add_listener(self)
+            trustchain_overlays[0].add_listener(self, [trustchain_overlays[0].UNIVERSAL_BLOCK_LISTENER])
 
     def write_data(self, message):
         """
