@@ -58,10 +58,15 @@ class TrustChainCommunity(Community):
         db_name = kwargs.pop('db_name', self.DB_NAME)
         self.settings = kwargs.pop('settings', TrustChainSettings())
         self.receive_block_lock = RLock()
+
+        if 'persistence' in kwargs:
+            self.persistence = kwargs.pop('persistence')
+        else:
+            self.persistence = self.DB_CLASS(working_directory, db_name)
+
         super(TrustChainCommunity, self).__init__(*args, **kwargs)
         self.request_cache = RequestCache()
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.persistence = self.DB_CLASS(working_directory, db_name)
         self.relayed_broadcasts = []
         self.logger.debug("The trustchain community started with Public Key: %s",
                           hexlify(self.my_peer.public_key.key_to_bin()))
@@ -416,9 +421,12 @@ class TrustChainCommunity(Community):
         Crawl the whole chain of a specific peer.
         :param latest_block_num: The latest block number of the peer in question, if available.
         """
-        cache = ChainCrawlCache(self, peer, known_chain_length=latest_block_num)
-        self.request_cache.add(cache)
-        reactor.callFromThread(self.send_next_partial_chain_crawl_request, cache)
+        try:
+            cache = ChainCrawlCache(self, peer, known_chain_length=latest_block_num)
+            self.request_cache.add(cache)
+            reactor.callFromThread(self.send_next_partial_chain_crawl_request, cache)
+        except RuntimeError:
+            self.logger.info("We are already crawling peer %s", peer)
 
     def crawl_lowest_unknown(self, peer, latest_block_num=None):
         """
@@ -712,3 +720,14 @@ class TrustChainCrawlerCommunity(TrustChainCommunity):
         random_peer = random.choice(self.get_peers())
         self.send_crawl_request(random_peer, random_peer.public_key.key_to_bin(), -1, -1).addCallbacks(
             lambda blk: self.on_latest_block(random_peer, blk), lambda _: None)
+
+
+class TrustChainBackwardsCrawlerCommunity(TrustChainCrawlerCommunity):
+    """
+    Backwards-compatible TrustChain community.
+    """
+    master_peer = Peer(unhexlify("3081a7301006072a8648ce3d020106052b8104002703819200040672297aa47c7bb2648ba0385275bc"
+                                 "8ade5aedc3677a615f5f9ca83b9b28c75e543342875f7f353bbf74baff7e3dae895ee9c9a9f80df023"
+                                 "dbfb72362426b50ce35549e6f0e0a319015a2fd425e2e34c92a3fb33b26929bcabb73e14f63684129b"
+                                 "66f0373ca425015cc9fad75b267de0cfb46ed798796058b23e12fc4c42ce9868f1eb7d59cc2023c039"
+                                 "14175ebb9703"))
