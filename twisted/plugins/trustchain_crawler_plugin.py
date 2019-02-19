@@ -11,6 +11,9 @@ import logging
 
 import yappi
 
+from ipv8.attestation.trustchain.community import TrustChainCrawlerCommunity
+from ipv8.peerdiscovery.community import DiscoveryCrawlerCommunity
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from twisted.application.service import MultiService, IServiceMaker
@@ -58,7 +61,7 @@ crawler_config = {
     'walker_interval': 0.5,
     'overlays': [
         {
-            'class': 'DiscoveryCommunity',
+            'class': 'DiscoveryCrawlerCommunity',
             'key': "my peer",
             'walkers': [
                 {
@@ -91,17 +94,9 @@ crawler_config = {
                 ('resolve_dns_bootstrap_addresses', )
             ]
         }, {
-            'class': 'TrustChainCommunity',
+            'class': 'TrustChainCrawlerCommunity',
             'key': "my peer",
-            'walkers': [
-                {
-                    'strategy': "RandomWalk",
-                    'peers': -1,
-                    'init': {
-                        'timeout': 3.0
-                    }
-                },
-            ],
+            'walkers': [],
             'initialize': {
                 'max_peers': -1,
                 'settings': tc_settings
@@ -152,7 +147,11 @@ class TrustchainCrawlerServiceMaker(object):
                 if community["class"] == "TrustChainCommunity":
                     community["class"] = "TrustChainTestnetCommunity"
 
-        self.ipv8 = IPv8(crawler_config)
+        extra_communities = {
+            "TrustChainCrawlerCommunity": TrustChainCrawlerCommunity,
+            "DiscoveryCrawlerCommunity": DiscoveryCrawlerCommunity
+        }
+        self.ipv8 = IPv8(crawler_config, extra_communities=extra_communities)
 
         def signal_handler(sig, _):
             msg("Received shut down signal %s" % sig)

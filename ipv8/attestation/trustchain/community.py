@@ -674,3 +674,41 @@ class TrustChainTestnetCommunity(TrustChainCommunity):
 
     master_peer = Peer(unhexlify("4c69624e61434c504b3aa90c1e65d68e9f0ccac1385b58e4a605add2406aff9952b1b6435ab07e5385"
                                  "5eb07b062ca33af9ec55b45446dbbefc3752523a4fd3b659ecd1d8e172b7b7f30d"))
+
+
+class TrustChainCrawlerCommunity(TrustChainCommunity):
+    """
+    TrustChain community specifically for the crawler.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(TrustChainCrawlerCommunity, self).__init__(*args, **kwargs)
+
+        self.crawl_lc = LoopingCall(self.crawl_peer)
+        self.crawl_lc.start(5)
+
+    def on_latest_block(self, peer, blocks):
+        his_block = None
+        if not blocks:
+            return
+
+        for block in blocks:
+            if block.public_key == peer.public_key.key_to_bin():
+                his_block = block
+                break
+
+        if his_block:
+            self._logger.info("Sending full crawl request to peer %s", peer)
+            self.crawl_chain(peer, his_block.sequence_number)
+
+    def crawl_peer(self):
+        """
+        Crawl a random peer.
+        """
+        tc_peers = self.get_peers()
+        if not tc_peers:
+            return
+
+        random_peer = random.choice(self.get_peers())
+        self.send_crawl_request(random_peer, random_peer.public_key.key_to_bin(), -1, -1).addCallbacks(
+            lambda blk: self.on_latest_block(random_peer, blk), lambda _: None)

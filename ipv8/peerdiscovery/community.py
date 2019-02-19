@@ -154,3 +154,14 @@ class DiscoveryCommunity(Community):
         payload = PongPayload(identifier).to_pack_list()
         dist = GlobalTimeDistributionPayload(global_time).to_pack_list()
         return self._ez_pack(self._prefix, 4, [dist, payload], False)
+
+
+class DiscoveryCrawlerCommunity(DiscoveryCommunity):
+
+    def __init__(self, my_peer, endpoint, network, max_peers=DEFAULT_MAX_PEERS):
+        super(DiscoveryCrawlerCommunity, self).__init__(my_peer, endpoint, network, max_peers=max_peers)
+
+    @lazy_wrapper(GlobalTimeDistributionPayload, SimilarityResponsePayload)
+    def on_similarity_response(self, node, dist, payload):
+        self.network.add_verified_peer(node)
+        self.network.discover_services(node, payload.preference_list)
