@@ -23,17 +23,19 @@ def measure_time(func):
     """
     Measure time of the query and save to csv file
     """
-
     @functools.wraps(func)
-    def wrapper_measure_time(*args, **kwargs):
+    def wrapper_measure_time(self, *args, **kwargs):
         start = time.time()
-        value = func(*args, **kwargs)
+        value = func(self, *args, **kwargs)
         end = time.time()
         runtime = end - start
         args_repr = [repr(a) for a in args]
         kwargs_repr = [repr(k) + "=" + repr(v) for k, v in kwargs.items()]
         params = ", ".join(args_repr + kwargs_repr)
-        with open('query_time.csv', 'ab') as f:
+        work_dir = self.work_dir
+        if work_dir is None or work_dir == u":memory:":
+            work_dir = ""
+        with open(os.path.join(work_dir, 'query_time.csv'), 'ab') as f:
             writer = csv.writer(f)
             writer.writerow([func.__name__, params, runtime])
         return value
@@ -56,6 +58,7 @@ class TrustChainDB(Database):
         that will contain the the db at working directory/DATABASE_PATH
         :param db_name: The name of the database
         """
+        self.work_dir = working_directory
         if working_directory != u":memory:":
             db_path = os.path.join(working_directory, os.path.join(DATABASE_DIRECTORY, u"%s.db" % db_name))
         else:
