@@ -260,14 +260,15 @@ class TrustChainDB(Database):
                                                           block.sequence_number))
 
     def crawl(self, public_key, start_seq_num, end_seq_num, limit=100):
-        query = u"SELECT * FROM (%s WHERE sequence_number >= ? AND sequence_number <= ? AND public_key = ? LIMIT ?) " \
-                u"UNION SELECT * FROM (%s WHERE link_sequence_number >= ? AND link_sequence_number <= ? AND " \
-                u"link_sequence_number != 0 AND link_public_key = ? LIMIT ?)" % \
-                (self.get_sql_header(), self.get_sql_header())
-        db_result = list(self.execute(query, (start_seq_num, end_seq_num, database_blob(public_key), limit,
-                                              start_seq_num, end_seq_num, database_blob(public_key), limit),
-                                      fetch_all=True))
-        return [self.get_block_class(db_item[0])(db_item) for db_item in db_result]
+        blocks = []
+        non_linked_blocks = self._getall(u"WHERE public_key = ? AND sequence_number >= ? AND sequence_number <= ? LIMIT ?", (database_blob(public_key), start_seq_num, end_seq_num, limit))
+        for block in non_linked_blocks:
+            blocks.append(block)
+            linked = self.get_linked(block)
+            if linked:
+                blocks.append(linked)
+
+        return blocks
 
     def get_recent_blocks(self, limit=10, offset=0):
         """
