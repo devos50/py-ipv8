@@ -25,7 +25,6 @@ class RootEndpoint(BaseEndpoint):
         super(RootEndpoint, self).__init__()
         self.session = session
         self.putChild(b'attestation', AttestationEndpoint(session))
-        self.putChild(b'dht', DHTEndpoint(session))
         self.putChild(b'isolation', IsolationEndpoint(session))
         self.putChild(b'network', NetworkEndpoint(session))
         self.putChild(b'noblockdht', NoBlockDHTEndpoint(session))
