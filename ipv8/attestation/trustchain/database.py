@@ -267,7 +267,15 @@ class TrustChainDB(Database):
         db_result = list(self.execute(query, (start_seq_num, end_seq_num, database_blob(public_key), limit,
                                               start_seq_num, end_seq_num, database_blob(public_key), limit),
                                       fetch_all=True))
-        return [self.get_block_class(db_item[0])(db_item) for db_item in db_result]
+
+        blocks = [self.get_block_class(db_item[0])(db_item) for db_item in db_result]
+        #db_result = list(self.execute(u"WITH myblocks AS (SELECT link_public_key, link_sequence_number FROM blocks WHERE public_key = ? AND link_sequence_number != 0 AND sequence_number >= ? AND sequence_number <= ?); SELECT * FROM blocks WHERE public_key IN (SELECT link_public_key FROM myblocks) AND sequence_number IN (SELECT link_sequence_number FROM myblocks)", (database_blob(public_key), start_seq_num, end_seq_num)))
+
+
+        query = u"SELECT * FROM blocks AS b1 WHERE link_public_key = ? AND EXISTS (SELECT * FROM blocks AS b2 WHERE b2.link_sequence_number = b1.sequence_number AND b2.link_public_key = b1.public_key AND sequence_number >= ? AND sequence_number <= ? AND link_sequence_number != 0)"
+        db_result = list(self.execute(query, (database_blob(public_key), start_seq_num, end_seq_num)))
+        blocks.extend([self.get_block_class(db_item[0])(db_item) for db_item in db_result])
+        return blocks
 
     def get_recent_blocks(self, limit=10, offset=0):
         """
