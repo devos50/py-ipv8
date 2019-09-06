@@ -1,3 +1,6 @@
+import os
+import random
+import string
 from asyncio import sleep
 
 from ...attestation.trustchain.test_block import TestBlock
@@ -42,7 +45,10 @@ class TestTrustChainCommunity(TestBase):
             node.overlay.add_listener(TestBlockListener(), [b'test'])
 
     def create_node(self):
-        return MockIPv8(u"curve25519", TrustChainCommunity, working_directory=u":memory:")
+        db_id = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
+        db_path = os.path.join(self.temp_dir, db_id)
+        os.makedirs(db_path)
+        return MockIPv8(u"curve25519", TrustChainCommunity, working_directory=db_path)
 
     async def test_sign_half_block(self):
         """
@@ -187,8 +193,7 @@ class TestTrustChainCommunity(TestBase):
             await self.nodes[0].overlay.sign_block(list(self.nodes[0].network.verified_peers)[0], public_key=his_pubkey,
                                                    block_type=b'test', transaction={})
 
-        self.nodes[1].overlay.persistence.execute(u"DELETE FROM blocks WHERE sequence_number = 2 AND public_key = ?",
-                                                  (database_blob(my_pubkey), ))
+        self.nodes[1].overlay.persistence.db.delete(b"%s:%d" % (my_pubkey, 2))
         self.assertIsNone(self.nodes[1].overlay.persistence.get(my_pubkey, 2))
 
         await self.nodes[1].overlay.crawl_lowest_unknown(self.nodes[0].my_peer)
@@ -456,31 +461,6 @@ class TestTrustChainCommunity(TestBase):
 
         self.assertEqual(len(self.nodes[0].overlay.persistence.get_all_linked(source_block)), 2)
 
-    def test_db_remove(self):
-        """
-        Test pruning of the database when it grows too large
-        """
-        self.nodes[0].overlay.settings.max_db_blocks = 5
-
-        for _ in range(10):
-            test_block = TestBlock()
-            self.nodes[0].overlay.persistence.add_block(test_block)
-
-        self.nodes[0].overlay.do_db_cleanup()
-        self.assertEqual(self.nodes[0].overlay.persistence.get_number_of_known_blocks(), 5)
-
-    def test_database_cleanup(self):
-        """
-        Test whether we are cleaning up the database correctly when there are too many blocks
-        """
-        for _ in range(5):
-            self.nodes[0].overlay.persistence.add_block(TestBlock())
-
-        self.assertEqual(self.nodes[0].overlay.persistence.get_number_of_known_blocks(), 5)
-        self.nodes[0].overlay.settings.max_db_blocks = 3
-        self.nodes[0].overlay.do_db_cleanup()
-        self.assertEqual(self.nodes[0].overlay.persistence.get_number_of_known_blocks(), 3)
-
     async def test_double_spend(self):
         """
         Test that a double spend is correctly detected and stored
@@ -534,7 +514,7 @@ class TestTrustChainCommunity(TestBase):
         Test crawl the whole chain of a specific peer
         """
         self.nodes[0].endpoint.close()
-        key = default_eccrypto.generate_key(u'very-low').pub().key_to_bin()
+        key = default_eccrypto.generate_key(u'curve25519').pub().key_to_bin()
         for _ in range(4):
             self.nodes[0].overlay.sign_block(list(self.nodes[0].network.verified_peers)[0], public_key=key,
                                              block_type=b'test', transaction={})
@@ -620,7 +600,7 @@ class TestTrustChainCommunity(TestBase):
         Test whether we can invoke process_block directly while node 1 has to crawl the chain of node 0
         """
         self.nodes[0].endpoint.close()
-        key = default_eccrypto.generate_key(u'very-low').pub().key_to_bin()
+        key = default_eccrypto.generate_key(u'curve25519').pub().key_to_bin()
         self.nodes[0].overlay.sign_block(list(self.nodes[0].network.verified_peers)[0], public_key=key,
                                          block_type=b'test', transaction={})
         his_key = self.nodes[1].my_peer.public_key.key_to_bin()

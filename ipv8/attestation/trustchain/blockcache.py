@@ -1,6 +1,3 @@
-from ...database import database_blob
-
-
 class BlockCache(object):
     """
     This class will cache (originating and linked) blocks in the chain of this user.
@@ -26,19 +23,10 @@ class BlockCache(object):
         missing = self.get_missing_in_range(start_seq_num, end_seq_num)
         if missing:
             # We are missing some blocks in our own chain, fetch them from the database
-            missing_str = ','.join(["%d" % seq_num for seq_num in missing])
-            query = u"SELECT * FROM (%s WHERE sequence_number IN (%s) AND public_key = ?) " \
-                    u"UNION SELECT * FROM (%s WHERE link_sequence_number IN (%s) AND " \
-                    u"link_sequence_number != 0 AND link_public_key = ?)" % \
-                    (self.database.get_sql_header(), missing_str, self.database.get_sql_header(), missing_str)
-            db_result = list(self.database.execute(query,
-                                                   (database_blob(self.public_key), database_blob(self.public_key)),
-                                                   fetch_all=True))
-            blocks = [self.database.get_block_class(db_item[0] if isinstance(db_item[0], bytes)
-                                                    else str(db_item[0]).encode('utf-8'))(db_item)
-                      for db_item in db_result]
-            for block in blocks:  # Add them to the cache
-                self.add(block)
+            for missing_seq_num in missing:
+                missing_block = self.database.get(self.public_key, missing_seq_num)
+                if missing_block:
+                    self.add(missing_block)
 
         # Check whether we need to fetch blocks linked to linked blocks. These blocks are not fetched by our
         # SQL query unfortunately.

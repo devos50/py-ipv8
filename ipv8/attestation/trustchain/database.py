@@ -1,20 +1,23 @@
 """
 This file contains everything related to persistence for TrustChain.
 """
+import json
+import logging
 import os
 from binascii import hexlify
 
+import rocksdb
+
+from .payload import HalfBlockPayload
 from .block import TrustChainBlock
 from ...attestation.trustchain.blockcache import BlockCache
-from ...database import Database, database_blob
+from ...database import database_blob
+from ...messaging.serialization import default_serializer
 
-DATABASE_DIRECTORY = os.path.join(u"sqlite")
 
-
-class TrustChainDB(Database):
+class TrustChainDB(object):
     """
     Persistence layer for the TrustChain Community.
-    Connection layer to SQLiteDB.
     Ensures a proper DB schema on startup.
     """
     LATEST_DB_VERSION = 7
@@ -27,11 +30,13 @@ class TrustChainDB(Database):
         :param db_name: The name of the database
         :param my_pk: The public key of this user, used for caching purposes
         """
-        if working_directory != u":memory:":
-            db_path = os.path.join(working_directory, os.path.join(DATABASE_DIRECTORY, u"%s.db" % db_name))
-        else:
-            db_path = working_directory
-        super(TrustChainDB, self).__init__(db_path)
+        db_path = os.path.join(working_directory, os.path.join(u"%s.db" % db_name))
+
+        self.db = rocksdb.DB(db_path, rocksdb.Options(create_if_missing=True))
+        if not self.db.get(b'blocks'):
+            self.db.put(b'blocks', str(0).encode('utf-8'))
+
+        self._logger = logging.getLogger(self.__class__.__name__)
         self._logger.debug("TrustChain database path: %s", db_path)
         self.db_name = db_name
         self.block_types = {}
@@ -39,8 +44,6 @@ class TrustChainDB(Database):
         if my_pk:
             self.my_pk = my_pk
             self.my_blocks_cache = BlockCache(self, my_pk)
-
-        self.open()
 
     def get_block_class(self, block_type):
         """
@@ -56,11 +59,35 @@ class TrustChainDB(Database):
         Persist a block
         :param block: The data that will be saved.
         """
-        self.execute(
-            u"INSERT INTO blocks (type, tx, public_key, sequence_number, link_public_key,"
-            u"link_sequence_number, previous_hash, signature, block_timestamp, block_hash) VALUES(?,?,?,?,?,?,?,?,?,?)",
-            block.pack_db_insert())
-        self.commit()
+        self.db.put(b'%s:%d' % (block.public_key, block.sequence_number), block.pack())
+        self.db.put(block.hash, b'%s:%d' % (block.public_key, block.sequence_number))
+
+        if block.link_sequence_number != 0:
+            # Store the linked block
+            self.db.put(b'%s:%d:l' % (block.public_key, block.sequence_number),
+                        b'%s:%d' % (block.link_public_key, block.link_sequence_number))
+            self.db.put(b'%s:%d:l' % (block.link_public_key, block.link_sequence_number),
+                        b'%s:%d' % (block.public_key, block.sequence_number))
+
+        # Update information about the latest block of this public key
+        raw_pk_info = self.db.get(block.public_key)
+        if not raw_pk_info:
+            pk_info = {'latest_block_num': 0, 'types': {}, 'known_blocks': 0}
+        else:
+            pk_info = json.loads(raw_pk_info)
+
+        pk_info['known_blocks'] += 1
+        if block.sequence_number > pk_info['latest_block_num']:
+            pk_info['latest_block_num'] = block.sequence_number
+
+        self.db.put(block.public_key, json.dumps(pk_info).encode('utf-8'))
+
+        # Update total number of blocks
+        total_blocks = int(self.db.get(b'blocks'))
+        total_blocks += 1
+        self.db.put(b'blocks', str(total_blocks).encode('utf-8'))
+
+        # TODO other maintainance
 
         if self.my_blocks_cache and (block.public_key == self.my_pk or block.link_public_key == self.my_pk):
             self.my_blocks_cache.add(block)
@@ -73,19 +100,22 @@ class TrustChainDB(Database):
 
         :param block: The data that will be removed.
         """
-        self.execute(
-            u"DELETE FROM blocks WHERE type = ? AND tx = ? AND public_key = ? AND sequence_number = ? AND "
-            u"link_public_key = ? AND link_sequence_number = ? AND previous_hash = ? AND signature = ? "
-            u"AND block_timestamp = ? AND block_hash = ?",
-            block.pack_db_insert())
-        self.commit()
+        self.db.delete(b'%s:%d' % (block.public_key, block.sequence_number))
 
-    def _get(self, query, params):
-        db_result = list(self.execute(self.get_sql_header() + query, params, fetch_all=False))
-        db_block_class = None
-        if db_result:
-            db_block_class = db_result[0] if isinstance(db_result[0], bytes) else str(db_result[0]).encode('utf-8')
-        return self.get_block_class(db_block_class)(db_result) if db_result else None
+        # Update information about the latest block of this public key
+        raw_pk_info = self.db.get(block.public_key)
+        pk_info = json.loads(raw_pk_info)
+
+        pk_info['known_blocks'] -= 1
+        if block.sequence_number > pk_info['latest_block_num']:
+            pk_info['latest_block_num'] = block.sequence_number
+
+        self.db.put(block.public_key, json.dumps(pk_info).encode('utf-8'))
+
+        # Update total number of blocks
+        total_blocks = int(self.db.get(b'blocks'))
+        total_blocks -= 1
+        self.db.put(b'blocks', str(total_blocks).encode('utf-8'))
 
     def _getall(self, query, params):
         db_result = list(self.execute(self.get_sql_header() + query, params, fetch_all=True))
@@ -99,7 +129,13 @@ class TrustChainDB(Database):
         :param sequence_number: The specific block to get
         :return: the block or None if it is not known
         """
-        return self._get(u"WHERE public_key = ? AND sequence_number = ?", (database_blob(public_key), sequence_number))
+        raw_block = self.db.get(b'%s:%d' % (public_key, sequence_number))
+        if not raw_block:
+            return None
+
+        payload = default_serializer.ez_unpack_serializables([HalfBlockPayload], raw_block)[0]
+        block = self.get_block_class(payload.type).from_payload(payload, default_serializer)
+        return block
 
     def get_all_blocks(self):
         """
@@ -113,9 +149,14 @@ class TrustChainDB(Database):
         Return the total number of blocks in the database or the number of known blocks for a specific user.
         """
         if public_key:
-            return list(self.execute(u"SELECT COUNT(*) FROM blocks WHERE public_key = ?",
-                                     (database_blob(public_key), )))[0][0]
-        return list(self.execute(u"SELECT COUNT(*) FROM blocks"))[0][0]
+            pk_info = self.db.get(public_key)
+            if not pk_info:
+                return 0
+
+            pk_info = json.loads(pk_info)
+            return int(pk_info['known_blocks'])
+
+        return int(self.db.get(b'blocks'))
 
     def remove_old_blocks(self, num_blocks_to_remove, my_pub_key):
         """
@@ -133,7 +174,17 @@ class TrustChainDB(Database):
         Return the block with a specific hash or None if it's not available in the database.
         :param block_hash: the hash of the block to search for.
         """
-        return self._get(u"WHERE block_hash = ?", (database_blob(block_hash),))
+        block_key = self.db.get(block_hash)
+        if not block_key:
+            return None
+
+        raw_block = self.db.get(block_key)
+        if not block_key:
+            return None
+
+        payload = default_serializer.ez_unpack_serializables([HalfBlockPayload], raw_block)[0]
+        block = self.get_block_class(payload.type).from_payload(payload, default_serializer)
+        return block
 
     def get_blocks_with_type(self, block_type, public_key=None):
         """
@@ -161,13 +212,27 @@ class TrustChainDB(Database):
         :param block_type: A block type (optional). When specified, it returned the latest block of this type.
         :return: the latest block or None if it is not known
         """
+        pk_info = self.db.get(public_key)
+        if not pk_info:
+            return None
+
+        pk_info = json.loads(pk_info)
+
         if block_type:
-            return self._get(u"WHERE public_key = ? AND type = ? AND sequence_number = (SELECT MAX(sequence_number) "
-                             u"FROM blocks WHERE public_key = ? AND type = ?)",
-                             (database_blob(public_key), block_type, database_blob(public_key), block_type))
+            if block_type in pk_info['types']:
+                return pk_info['types'][block_type]
+            else:
+                return None
         else:
-            return self._get(u"WHERE public_key = ? AND sequence_number = (SELECT MAX(sequence_number) FROM blocks "
-                             u"WHERE public_key = ?)", (database_blob(public_key), database_blob(public_key)))
+            latest_block_num = pk_info['latest_block_num']
+
+            raw_block = self.db.get(b'%s:%d' % (public_key, latest_block_num))
+            if not raw_block:
+                return None
+
+            payload = default_serializer.ez_unpack_serializables([HalfBlockPayload], raw_block)[0]
+            block = self.get_block_class(payload.type).from_payload(payload, default_serializer)
+            return block
 
     def get_latest_blocks(self, public_key, limit=25, block_types=None):
         """
@@ -177,12 +242,26 @@ class TrustChainDB(Database):
         :param block_types: A list of block types to return.
         :return: A list of blocks matching the given block types and public key.
         """
-        if block_types:
-            return self._getall(u"WHERE public_key = ? AND type IN (?) ORDER BY sequence_number DESC LIMIT ?",
-                                (database_blob(public_key), b','.join(block_types), limit))
-        else:
-            return self._getall(u"WHERE public_key = ? ORDER BY sequence_number DESC LIMIT ?",
-                                (database_blob(public_key), limit))
+        latest_blocks = []
+        latest_block = self.get_latest(public_key)
+        if not latest_block:
+            return []
+
+        cur_seq_num = latest_block.sequence_number
+        while cur_seq_num > 0 and len(latest_blocks) < limit:
+            cur_block_raw = self.db.get(b'%s:%d' % (public_key, cur_seq_num))
+            if not cur_block_raw:
+                continue
+
+            payload = default_serializer.ez_unpack_serializables([HalfBlockPayload], cur_block_raw)[0]
+            cur_block = self.get_block_class(payload.type).from_payload(payload, default_serializer)
+
+            if (block_types and cur_block.type in block_types) or not block_types:
+                latest_blocks.append(cur_block)
+
+            cur_seq_num -= 1
+
+        return latest_blocks
 
     def get_block_after(self, block, block_type=None):
         """
@@ -191,12 +270,25 @@ class TrustChainDB(Database):
         :param block_type: A block type (optional). When specified, it only considers blocks of this type
         :return A block
         """
-        if block_type:
-            return self._get(u"WHERE sequence_number > ? AND public_key = ? AND type = ? ORDER BY sequence_number ASC",
-                             (block.sequence_number, database_blob(block.public_key), block_type))
-        else:
-            return self._get(u"WHERE sequence_number > ? AND public_key = ? ORDER BY sequence_number ASC",
-                             (block.sequence_number, database_blob(block.public_key)))
+
+        # TODO consider block type!
+        highest_block = self.get_latest(block.public_key, block_type)
+        if not highest_block:
+            return None
+
+        if block.hash == highest_block.hash:
+            return None
+        cur_seq_num = block.sequence_number + 1
+        while cur_seq_num <= highest_block.sequence_number:
+            raw_block = self.db.get(b"%s:%d" % (block.public_key, cur_seq_num))
+            if raw_block:
+                payload = default_serializer.ez_unpack_serializables([HalfBlockPayload], raw_block)[0]
+                block = self.get_block_class(payload.type).from_payload(payload, default_serializer)
+                return block
+
+            cur_seq_num += 1
+
+        return None
 
     def get_block_before(self, block, block_type=None):
         """
@@ -204,12 +296,19 @@ class TrustChainDB(Database):
         :param block: The block who's predecessor we want to find
         :return A block
         """
-        if block_type:
-            return self._get(u"WHERE sequence_number < ? AND public_key = ? AND type = ? ORDER BY sequence_number DESC",
-                             (block.sequence_number, database_blob(block.public_key), block_type))
-        else:
-            return self._get(u"WHERE sequence_number < ? AND public_key = ? ORDER BY sequence_number DESC",
-                             (block.sequence_number, database_blob(block.public_key)))
+
+        # TODO consider block type!
+        cur_seq_num = block.sequence_number - 1
+        while cur_seq_num > 0:
+            raw_block = self.db.get(b"%s:%d" % (block.public_key, cur_seq_num))
+            if raw_block:
+                payload = default_serializer.ez_unpack_serializables([HalfBlockPayload], raw_block)[0]
+                block = self.get_block_class(payload.type).from_payload(payload, default_serializer)
+                return block
+
+            cur_seq_num -= 1
+
+        return None
 
     def get_lowest_sequence_number_unknown(self, public_key):
         """
@@ -217,16 +316,19 @@ class TrustChainDB(Database):
         :param public_key: The public key
         """
 
-        # The following query fetches the earliest block that does not have a subsequent block.
-        # This does not work for the case where we are merely missing the first block, hence this check.
-        if not self.get(public_key, 1):
+        latest_block = self.get_latest(public_key)
+        if not latest_block:
             return 1
 
-        query = u"SELECT b1.sequence_number FROM blocks b1 WHERE b1.public_key = ? AND NOT EXISTS " \
-                u"(SELECT b2.sequence_number FROM blocks b2 WHERE b2.sequence_number = b1.sequence_number + 1 " \
-                u"AND b2.public_key = ?) ORDER BY b1.sequence_number LIMIT 1"
-        db_result = list(self.execute(query, (database_blob(public_key), database_blob(public_key)), fetch_all=True))
-        return db_result[0][0] + 1 if db_result else 1
+        cur_seq_num = 1
+        while cur_seq_num < latest_block.sequence_number:
+            raw_block = self.get(public_key, cur_seq_num)
+            if not raw_block:
+                return cur_seq_num
+            cur_seq_num += 1
+
+        # Otherwise, we are missing the block immediately after the latest block
+        return latest_block.sequence_number + 1
 
     def get_lowest_range_unknown(self, public_key):
         """
@@ -237,15 +339,18 @@ class TrustChainDB(Database):
         :return: A tuple indicating the start and end of the range of missing blocks.
         """
         lowest_unknown = self.get_lowest_sequence_number_unknown(public_key)
+        latest_block = self.get_latest(public_key)
+        if not latest_block:
+            return 1, 1
 
-        # Now get the sequence number of the first block in the database, after this lowest unknown
-        query = u"SELECT sequence_number FROM blocks WHERE public_key = ? AND sequence_number > ? " \
-                u"ORDER BY sequence_number LIMIT 1"
-        db_result = list(self.execute(query, (database_blob(public_key), lowest_unknown), fetch_all=True))
-        if db_result:
-            return lowest_unknown, db_result[0][0] - 1
-        else:
-            return lowest_unknown, lowest_unknown
+        cur_seq_num = lowest_unknown + 1
+        while cur_seq_num < latest_block.sequence_number:
+            cur_block = self.get(public_key, cur_seq_num)
+            if cur_block:
+                return lowest_unknown, cur_seq_num - 1
+            cur_seq_num += 1
+
+        return lowest_unknown, latest_block.sequence_number - 1
 
     def get_linked(self, block):
         """
@@ -253,10 +358,14 @@ class TrustChainDB(Database):
         :param block: The block for which to get the linked block
         :return: the latest block or None if it is not known
         """
-        return self._get(u"WHERE public_key = ? AND sequence_number = ? OR link_public_key = ? AND "
-                         u"link_sequence_number = ? ORDER BY block_timestamp ASC",
-                         (database_blob(block.link_public_key), block.link_sequence_number,
-                          database_blob(block.public_key), block.sequence_number))
+        linked_key = self.db.get(b"%s:%d:l" % (block.public_key, block.sequence_number))
+        if linked_key:
+            linked_block_raw = self.db.get(linked_key)
+            if not linked_block_raw:
+                return None
+            payload = default_serializer.ez_unpack_serializables([HalfBlockPayload], linked_block_raw)[0]
+            block = self.get_block_class(payload.type).from_payload(payload, default_serializer)
+            return block
 
     def get_all_linked(self, block):
         """
@@ -354,84 +463,5 @@ class TrustChainDB(Database):
                    u"previous_hash, signature, block_timestamp, insert_time"
         return u"SELECT " + _columns + u" FROM blocks "
 
-    def get_sql_create_blocks_table(self, table_name, primary_key):
-        return u"""
-        CREATE TABLE IF NOT EXISTS %s(
-         type                 TEXT NOT NULL,
-         tx                   TEXT NOT NULL,
-         public_key           TEXT NOT NULL,
-         sequence_number      INTEGER NOT NULL,
-         link_public_key      TEXT NOT NULL,
-         link_sequence_number INTEGER NOT NULL,
-         previous_hash	      TEXT NOT NULL,
-         signature		      TEXT NOT NULL,
-         block_timestamp      BIGINT NOT NULL,
-         insert_time          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-         block_hash	          TEXT NOT NULL,
-
-         PRIMARY KEY (%s)
-         );
-         """ % (table_name, primary_key)
-
-    def get_schema(self):
-        """
-        Return the schema for the database.
-        """
-        return u"""
-        %s
-
-        %s
-
-        CREATE TABLE IF NOT EXISTS option(key TEXT PRIMARY KEY, value BLOB);
-        DELETE FROM option WHERE key = 'database_version';
-        INSERT INTO option(key, value) VALUES('database_version', '%s');
-
-        CREATE INDEX IF NOT EXISTS pub_key_ind ON blocks (public_key);
-        CREATE INDEX IF NOT EXISTS link_pub_key_ind ON blocks (link_public_key);
-        CREATE INDEX IF NOT EXISTS seq_num_ind ON blocks (sequence_number);
-        CREATE INDEX IF NOT EXISTS link_seq_num_ind ON blocks (link_sequence_number);
-        """ % (self.get_sql_create_blocks_table("blocks", "public_key, sequence_number"),
-               self.get_sql_create_blocks_table("double_spends", "public_key, sequence_number, block_hash"),
-               str(self.LATEST_DB_VERSION))
-
-    def get_upgrade_script(self, current_version):
-        """
-        Return the upgrade script for a specific version.
-        :param current_version: the version of the script to return.
-        """
-        # All these version introduce changes that are not backwards compatible
-        if current_version <= 4 or current_version == 6:
-            return u"""
-            DROP TABLE IF EXISTS blocks;
-            DROP TABLE IF EXISTS option;
-            """
-        elif current_version == 5:
-            return self.get_sql_create_blocks_table("double_spends", "public_key, sequence_number, block_hash")
-
-    def open(self, initial_statements=True, prepare_visioning=True):
-        return super(TrustChainDB, self).open(initial_statements, prepare_visioning)
-
-    def close(self, commit=True):
-        return super(TrustChainDB, self).close(commit)
-
-    def check_database(self, database_version):
-        """
-        Ensure the proper schema is used by the database.
-        :param database_version: Current version of the database.
-        :return:
-        """
-        assert isinstance(database_version, str)
-        assert database_version.isdigit()
-        assert int(database_version) >= 0
-        database_version = int(database_version)
-
-        if database_version < self.LATEST_DB_VERSION:
-            while database_version < self.LATEST_DB_VERSION:
-                upgrade_script = self.get_upgrade_script(current_version=database_version)
-                if upgrade_script:
-                    self.executescript(upgrade_script)
-                database_version += 1
-            self.executescript(self.get_schema())
-            self.commit()
-
-        return self.LATEST_DB_VERSION
+    def close(self):
+        del self.db

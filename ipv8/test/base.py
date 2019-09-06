@@ -48,6 +48,7 @@ class TestBase(asynctest.TestCase):
     def setUp(self):
         super(TestBase, self).setUp()
         TestBase.__lockup_timestamp__ = time.time()
+        self.temp_dir = self.temporary_directory()
 
     async def tearDown(self):
         try:
