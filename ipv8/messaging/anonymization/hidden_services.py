@@ -279,6 +279,8 @@ class HiddenTunnelCommunity(TunnelCommunity):
         return super(HiddenTunnelCommunity, self).select_circuit(destination, hops)
 
     def send_peers_request(self, info_hash, target, hops):
+        self.logger.warning("CIRCUITS: %s", self.circuits)
+        self.logger.warning("HOPS: %d", hops)
         circuit = self.select_circuit(None, hops)
         if not circuit:
             self.logger.info("No circuit for peers-request")
