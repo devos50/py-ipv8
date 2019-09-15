@@ -57,12 +57,13 @@ class TrustChainCommunity(Community):
         db_name = kwargs.pop('db_name', self.DB_NAME)
         self.settings = kwargs.pop('settings', TrustChainSettings())
         self.receive_block_lock = RLock()
-        super(TrustChainCommunity, self).__init__(*args, **kwargs)
 
         if 'persistence' in kwargs:
             self.persistence = kwargs.pop('persistence')
         else:
-            self.persistence = self.DB_CLASS(working_directory, db_name, self.my_peer.public_key.key_to_bin())
+            self.persistence = self.DB_CLASS(working_directory, db_name)
+
+        super(TrustChainCommunity, self).__init__(*args, **kwargs)
 
         self.request_cache = RequestCache()
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -425,11 +426,15 @@ class TrustChainCommunity(Community):
         Crawl the whole chain of a specific peer.
         :param latest_block_num: The latest block number of the peer in question, if available.
         """
-        crawl_deferred = Deferred()
-        cache = ChainCrawlCache(self, peer, crawl_deferred, known_chain_length=latest_block_num)
-        self.request_cache.add(cache)
-        reactor.callFromThread(self.send_next_partial_chain_crawl_request, cache)
-        return crawl_deferred
+        try:
+            crawl_deferred = Deferred()
+            cache = ChainCrawlCache(self, peer, crawl_deferred, known_chain_length=latest_block_num)
+            self.request_cache.add(cache)
+            reactor.callFromThread(self.send_next_partial_chain_crawl_request, cache)
+            return crawl_deferred
+        except RuntimeError:
+            self.logger.info("We are already crawling peer %s", peer)
+            return succeed(None)
 
     def crawl_lowest_unknown(self, peer, latest_block_num=None):
         """
