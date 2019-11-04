@@ -130,6 +130,14 @@ class TrustChainCommunity(Community):
 
         returnValue(False)
 
+    def on_counter_signed(self, block):
+        """
+        We just counter signed a block. Inform the listeners.
+        """
+        if block.type in self.listeners_map:
+            for listener in self.listeners_map[block.type]:
+                listener.on_counter_signed_block(block)
+
     def get_counter_tx(self, block):
         """
         Return some counter tx content.
@@ -427,7 +435,9 @@ class TrustChainCommunity(Community):
                                                              for_half_block=blk)
                     return addCallback(crawl_deferred, lambda _: self.process_half_block(blk, peer))
             else:
-                return self.sign_block(peer, linked=blk, additional_info=self.get_counter_tx(blk))
+                deferred = self.sign_block(peer, linked=blk, additional_info=self.get_counter_tx(blk))
+                self.on_counter_signed(blk)
+                return deferred
 
         # determine if we want to sign this block
         return addCallback(maybeDeferred(self.should_sign, blk), on_should_sign_outcome)

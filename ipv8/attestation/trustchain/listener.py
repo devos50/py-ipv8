@@ -21,9 +21,15 @@ class BlockListener(six.with_metaclass(abc.ABCMeta, object)):
         pass
 
     @abc.abstractmethod
+    def on_counter_signed_block(self, block):
+        """
+        This method is called when we counter signed a block.
+        """
+        pass
+
+    @abc.abstractmethod
     def received_block(self, block):
         """
         This method is called when a listener receives a block that matches the BLOCK_CLASS.
-        :return:
         """
         pass

@@ -35,6 +35,9 @@ class TestBlockListener(BlockListener):
     def received_block(self, block):
         pass
 
+    def on_counter_signed_block(self, block):
+        pass
+
 
 class TestTrustChainCommunity(TestBase):
 
