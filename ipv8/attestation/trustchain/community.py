@@ -130,6 +130,23 @@ class TrustChainCommunity(Community):
 
         returnValue(False)
 
+    def get_counter_tx(self, block):
+        """
+        Return some counter tx content.
+        """
+        if block.type not in self.listeners_map:
+            return block.transaction  # There are no listeners for this block
+
+        if len(self.listeners_map[block.type]) > 1:
+            self.logger.warning("There should only be one listener when returning a counter transaction!")
+            return block.transaction
+
+        listener = self.listeners_map[block.type][0]
+        if not hasattr(listener, "get_counter_tx"):
+            return block.transaction
+
+        return listener.get_counter_tx(block)
+
     def send_block(self, block, address=None, ttl=1):
         """
         Send a block to a specific address, or do a broadcast to known peers if no peer is specified.
@@ -223,7 +240,7 @@ class TrustChainCommunity(Community):
         assert transaction is None and linked is not None or transaction is not None and linked is None, \
             "Either provide a linked block or a transaction, not both %s, %s" % (peer, self.my_peer)
         assert (additional_info is None or additional_info is not None and linked is not None
-                and transaction is None and peer == self.my_peer and public_key == linked.public_key), \
+                and transaction is None), \
             "Either no additional info is provided or one provides it for a linked block"
         assert (linked is None or linked.link_public_key == self.my_peer.public_key.key_to_bin()
                 or linked.link_public_key == ANY_COUNTERPARTY_PK), "Cannot counter sign block not addressed to self"
@@ -410,7 +427,7 @@ class TrustChainCommunity(Community):
                                                              for_half_block=blk)
                     return addCallback(crawl_deferred, lambda _: self.process_half_block(blk, peer))
             else:
-                return self.sign_block(peer, linked=blk)
+                return self.sign_block(peer, linked=blk, additional_info=self.get_counter_tx(blk))
 
         # determine if we want to sign this block
         return addCallback(maybeDeferred(self.should_sign, blk), on_should_sign_outcome)

@@ -83,6 +83,24 @@ class TestTrustChainCommunity(TestBase):
             self.assertEqual(self.nodes[node_nr].overlay.persistence.get(his_pubkey, 1).link_sequence_number, 1)
 
     @inlineCallbacks
+    def test_counter_tx(self):
+        """
+        Test whether the counterparty can update the transaction in the block.
+        """
+        self.nodes[1].overlay.get_counter_tx = lambda blk: {"a": "b"}
+
+        my_pubkey = self.nodes[0].my_peer.public_key.key_to_bin()
+        his_pubkey = self.nodes[0].network.verified_peers[0].public_key.key_to_bin()
+        self.nodes[0].overlay.sign_block(self.nodes[0].network.verified_peers[0], public_key=his_pubkey,
+                                         block_type=b'test', transaction={})
+
+        yield self.deliver_messages()
+
+        # The counterparty block should contain our counter tx
+        for node_nr in [0, 1]:
+            self.assertDictEqual(self.nodes[node_nr].overlay.persistence.get(his_pubkey, 1).transaction, {"a": "b"})
+
+    @inlineCallbacks
     def test_get_linked(self):
         """
         Check if a both halves of a fully signed block link to each other.
