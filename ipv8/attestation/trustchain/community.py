@@ -418,7 +418,7 @@ class TrustChainCommunity(Community):
                                additional_info=additional_info)
 
     def sign_block(self, peer, public_key=EMPTY_PK, block_type=b'unknown', transaction=None, linked=None,
-                   additional_info=None, double_spend_block=None, from_peer=None, from_peer_seq_num=None):
+                   additional_info=None, double_spend_block=None):
         """
         Create, sign, persist and send a block signed message
         :param peer: The peer with whom you have interacted, as a IPv8 peer
@@ -428,8 +428,6 @@ class TrustChainCommunity(Community):
         :param linked: The block that the requester is asking us to sign
         :param additional_info: Stores additional information, on the transaction
         :param double_spend_block: Number of block if you want to double sign
-        :param from_peer:  Optional parameter for conditional chain payments
-        :param from_peer_seq_num: Optional parameter for conditional chain payments
         """
         # NOTE to the future: This method reads from the database, increments and then writes back. If in some future
         # this method is allowed to execute in parallel, be sure to lock from before .create up to after .add_block
@@ -500,8 +498,7 @@ class TrustChainCommunity(Community):
             # Check if we are waiting for this signature response
             block_id_int = int(hexlify(block.block_id), 16) % 100000000
             if not self.request_cache.has(u'sign', block_id_int):
-                self.request_cache.add(HalfBlockSignCache(self, block, sign_deferred, peer.address,
-                                                          from_peer=from_peer, seq_num=from_peer_seq_num))
+                self.request_cache.add(HalfBlockSignCache(self, block, sign_deferred, peer.address))
                 return sign_deferred
             return succeed((block, None))
         else:
@@ -628,17 +625,6 @@ class TrustChainCommunity(Community):
             cache = self.request_cache.pop(u'sign', link_block_id_int)
             # We cannot guarantee that we're on a reactor thread so make sure we do this Twisted stuff on the reactor.
             reactor.callFromThread(cache.sign_deferred.callback, (blk, self.persistence.get_linked(blk)))
-            if 'condition' in blk.transaction and cache.from_peer:
-                # We need to answer to prev peer in the chain
-                if 'proof' in blk.transaction:
-                    orig_blk = self.persistence.get(cache.from_peer.public_key.key_to_bin(), cache.seq_num)
-                    new_tx = orig_blk.transaction
-                    new_tx['proof'] = blk.transaction['proof']
-                    return self.sign_block(cache.from_peer, linked=orig_blk, block_type=b'claim',
-                                           additional_info=new_tx)
-                else:
-                    self.logger.error("Got conditional block without a proof %s ", cache.from_peer)
-                    return fail(RuntimeError("Block could not be validated: %s, %s" % (validation[0], validation[1])))
 
         # Is this a request, addressed to us, and have we not signed it already?
         if (blk.link_sequence_number != UNKNOWN_SEQ
@@ -666,31 +652,6 @@ class TrustChainCommunity(Community):
                 crawl_deferred = self.validate_claims(blk, peer)
                 return addCallback(crawl_deferred, lambda audit_proofs: self.process_half_block(blk, peer,
                                                                                                 audit_proofs))
-            if 'condition' in blk.transaction:
-                pub_key = unhexlify(blk.transaction['condition'])
-                if self.my_peer.public_key.key_to_bin() != pub_key:
-                    # This is a multi-hop conditional transaction, relay to next peer
-                    # TODO: add to settings fees
-                    fees = 0
-                    spend_value = blk.transaction['value'] - fees
-                    new_tx = blk.transaction
-                    val = self.prepare_spend_transaction(pub_key, spend_value)
-                    if not val:
-                        # need to mint new values
-                        mint = self.prepare_mint_transaction()
-                        return addCallback(self.self_sign_block(block_type=b'claim', transaction=mint),
-                                           lambda _: self.process_half_block(blk, peer))
-                    next_peer, added = val
-                    new_tx.update(added)
-                    return self.sign_block(next_peer, next_peer.public_key.key_to_bin(), transaction=new_tx,
-                                           block_type=blk.type, from_peer=peer,
-                                           from_peer_seq_num=blk.sequence_number)
-                else:
-                    # Conditional block that terminates at our peer: add additional_info and send claim
-                    sign = blk.crypto.create_signature(self.my_peer.key, blk.transaction['nonce'].encode())
-                    new_tx = blk.transaction
-                    new_tx['proof'] = hexlify(sign).decode()
-                    return self.sign_block(peer, linked=blk, block_type=b'claim', additional_info=new_tx)
 
             return self.sign_block(peer, linked=blk, block_type=b'claim')
 
