@@ -759,6 +759,8 @@ class NoodleCommunity(Community):
             self.logger.info("Not signing block %s", blk)
             return succeed(None)
 
+        return succeed(None)  # Crawler is not signing anything...
+
         peer_id = self.persistence.key_to_id(blk.public_key)
         if blk.type == b'spend':
             # Request proofs from the peer if:
