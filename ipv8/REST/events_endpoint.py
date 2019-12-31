@@ -31,7 +31,7 @@ class EventsEndpoint(resource.Resource, BlockListener):
         """
         Write data over the event socket if it's open.
         """
-        [request.write(json.dumps(message) + '\n') for request in self.events_requests]
+        [request.write(json.dumps(message).encode('utf-8') + b'\n') for request in self.events_requests]
 
     def should_sign(self, block):
         return False
@@ -57,6 +57,6 @@ class EventsEndpoint(resource.Resource, BlockListener):
         self.events_requests.append(request)
         request.notifyFinish().addCallbacks(on_request_finished, on_request_finished)
 
-        request.write(json.dumps({"type": "events_start", "event": {}}) + '\n')
+        request.write(json.dumps({"type": "events_start", "event": {}}).encode('utf-8') + b'\n')
 
         return server.NOT_DONE_YET

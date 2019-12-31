@@ -344,7 +344,7 @@ class NoodleDB(Database):
         block_types_info = []
         for block_type_info in res:
             block_types_info.append({
-                "type": block_type_info[0],
+                "type": block_type_info[0].decode(),
                 "count": block_type_info[1]
             })
         return block_types_info
@@ -380,7 +380,7 @@ class NoodleDB(Database):
         users_info = []
         for user_info in res:
             users_info.append({
-                "public_key": hexlify(user_info[0] if isinstance(user_info[0], bytes) else str(user_info[0])),
+                "public_key": hexlify(user_info[0] if isinstance(user_info[0], bytes) else str(user_info[0])).decode(),
                 "blocks": user_info[1],
             })
         return users_info
