@@ -5,7 +5,7 @@ from binascii import unhexlify
 from twisted.web import http
 
 from .base_endpoint import BaseEndpoint
-from ..attestation.trustchain.community import TrustChainCommunity
+from ..attestation.noodle.community import NoodleCommunity
 
 
 class TrustchainEndpoint(BaseEndpoint):
@@ -16,7 +16,7 @@ class TrustchainEndpoint(BaseEndpoint):
     def __init__(self, session):
         super(TrustchainEndpoint, self).__init__()
 
-        trustchain_overlays = [overlay for overlay in session.overlays if isinstance(overlay, TrustChainCommunity)]
+        trustchain_overlays = [overlay for overlay in session.overlays if isinstance(overlay, NoodleCommunity)]
         if trustchain_overlays:
             self.putChild(b"statistics", TrustchainStatisticsEndpoint(trustchain_overlays[0]))
             self.putChild(b"recent", TrustchainRecentEndpoint(trustchain_overlays[0]))
