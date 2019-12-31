@@ -52,7 +52,7 @@ class NoodleDB(Database):
         self.num_blocks = list(self.execute(u"SELECT COUNT(*) FROM blocks"))[0][0]
         self.pubkeys = set()
         for row in self.execute(u"SELECT DISTINCT public_key FROM blocks"):
-            pub_key = str(row[0]).encode('hex')
+            pub_key = hexlify(row[0]).decode()
             self.pubkeys.add(pub_key)
         var_sizes = list(self.execute(u"SELECT SUM(LENGTH(type)), SUM(LENGTH(tx)) FROM blocks"))[0]
         if var_sizes[0] != None:
@@ -101,7 +101,7 @@ class NoodleDB(Database):
             db_data)
         self.commit()
         self.num_blocks += 1
-        self.pubkeys.add(block.public_key.encode('hex'))
+        self.pubkeys.add(hexlify(block.public_key).decode())
         self.total_db_size += 260 + len(db_data[0]) + len(db_data[1])
 
         if self.my_blocks_cache and (block.public_key == self.my_pk or block.link_public_key == self.my_pk):
@@ -448,8 +448,8 @@ class NoodleDB(Database):
         res = list(self.execute(query))
         user_interactions = {}
         for user_interaction in res:
-            public_key = str(user_interaction[0]).encode('hex')
-            link_public_key = str(user_interaction[1]).encode('hex')
+            public_key = hexlify(user_interaction[0]).decode()
+            link_public_key = hexlify(user_interaction[1]).decode()
             if public_key not in user_interactions:
                 user_interactions[public_key] = []
             user_interactions[public_key].append(link_public_key)
