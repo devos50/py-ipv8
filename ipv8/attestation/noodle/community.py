@@ -689,8 +689,6 @@ class NoodleCommunity(Community):
         else:
             self.notify_listeners(block)
             if not self.persistence.contains(block):
-                # verify the block according to the previously received status
-                self.check_local_state_wrt_block(block)
                 self.persistence.add_block(block)
                 if peer:
                     self.persistence.add_peer(peer)
