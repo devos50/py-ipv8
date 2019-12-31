@@ -142,24 +142,6 @@ class NoodleCommunity(Community):
         # Add the listener
         self.add_listener(NoodleBlockListener(), [b'spend', b'claim'])
 
-        # Enable the memory database
-        orig_db = self.persistence
-        self.persistence = NoodleMemoryDatabase(working_directory, db_name, orig_db)
-
-        # Add the system minter(s)
-        for minter_pk in self.settings.minters:
-            self.known_graph.add_node(unhexlify(minter_pk), minter=True)
-
-        # If we are the system minter, init the community
-        if hexlify(self.my_peer.public_key.key_to_bin()) in self.settings.minters or not self.settings.minters:
-            self._logger.info("I am the system minter - init our own community")
-            self.init_minter_community()
-
-            # Mint if needed
-            my_id = self.persistence.key_to_id(self.my_peer.public_key.key_to_bin())
-            if self.persistence.get_balance(my_id) <= 0:
-                self.mint(self.settings.initial_mint_value)
-
     def transfer(self, dest_peer, spend_value):
         if self.get_my_balance() < spend_value and not self.settings.is_hiding:
             return fail(InsufficientBalanceException("Insufficient balance."))
