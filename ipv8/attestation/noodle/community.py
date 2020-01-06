@@ -160,8 +160,11 @@ class NoodleCommunity(Community):
             peer_id = self.persistence.key_to_id(self.my_peer.public_key.key_to_bin())
             pw_total = self.persistence.get_total_pairwise_spends(my_id, peer_id)
             tx = {"value": spend_value, "total_spend": pw_total + spend_value}
-            self.self_sign_block(block_type=b'spend', transaction=tx)
-            return self.self_sign_block(block_type=b'claim', transaction=tx)
+
+            def on_block_success(block_tup):
+                return self.sign_block(self.my_peer, self.my_peer.public_key.key_to_bin(), block_type=b'claim',
+                                       linked=block_tup[0])
+            return self.sign_block(self.my_peer, self.my_peer.public_key.key_to_bin(), block_type=b'spend', transaction=tx).addCallback(on_block_success)
 
         try:
             next_hop_peer, tx = self.prepare_spend_transaction(dest_peer.public_key.key_to_bin(), spend_value)
