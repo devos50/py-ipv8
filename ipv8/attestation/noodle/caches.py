@@ -101,14 +101,14 @@ class HalfBlockSignCache(NumberCache):
         Note that we use a very high timeout for a half block signature. Ideally, we would like to have a request
         cache without any timeouts and just keep track of outstanding signature requests but this isn't possible (yet).
         """
-        return 60.0
+        return self.community.settings.half_block_timeout
 
     def on_timeout(self):
         if self.sign_deferred.called:
             self._logger.debug("Race condition encountered with timeout/removal of HalfBlockSignCache, recovering.")
             return
         self._logger.info("Timeout for sign request for half block %s, note that it can still arrive!", self.half_block)
-        if self.timeouts < 360:
+        if self.timeouts < self.community.settings.half_block_timeout_retries:
             self.community.send_block(self.half_block, address=self.socket_address)
 
             def add_later(_):
