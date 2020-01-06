@@ -193,6 +193,21 @@ class TestNoodleCommunityTwoNodes(TestNoodleCommunityBase):
         self.assertEqual(self.nodes[0].overlay.persistence.get_balance(my_id),
                          self.nodes[0].overlay.settings.initial_mint_value * 2)
 
+    @inlineCallbacks
+    def test_transfer_to_yourself(self):
+        """
+        Test transferring some tokens to yourself.
+        """
+        yield self.introduce_nodes()
+        yield self.nodes[0].overlay.transfer(self.nodes[0].overlay.my_peer, 10000)
+
+        my_pub_key = self.nodes[0].overlay.my_peer.public_key.key_to_bin()
+        my_id = self.nodes[0].overlay.persistence.key_to_id(my_pub_key)
+        latest_blocks = self.nodes[0].overlay.persistence.get_latest_blocks(my_pub_key)
+        self.assertEqual(len(latest_blocks), 3)
+        self.assertEqual(self.nodes[0].overlay.persistence.get_balance(my_id),
+                         self.nodes[0].overlay.settings.initial_mint_value)
+
 
 class TestNoodleCommunityThreeNodes(TestNoodleCommunityBase):
     __testing__ = True

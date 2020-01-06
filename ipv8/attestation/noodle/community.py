@@ -153,6 +153,16 @@ class NoodleCommunity(Community):
     def transfer(self, dest_peer, spend_value):
         self._logger.debug("Making spend to peer %s (value: %f)", dest_peer, spend_value)
 
+        if dest_peer == self.my_peer:
+            # We are transferring something to ourselves
+            my_pk = self.my_peer.public_key.key_to_bin()
+            my_id = self.persistence.key_to_id(my_pk)
+            peer_id = self.persistence.key_to_id(self.my_peer.public_key.key_to_bin())
+            pw_total = self.persistence.get_total_pairwise_spends(my_id, peer_id)
+            tx = {"value": spend_value, "total_spend": pw_total + spend_value}
+            self.self_sign_block(block_type=b'spend', transaction=tx)
+            return self.self_sign_block(block_type=b'claim', transaction=tx)
+
         try:
             next_hop_peer, tx = self.prepare_spend_transaction(dest_peer.public_key.key_to_bin(), spend_value)
         except Exception as exc:
