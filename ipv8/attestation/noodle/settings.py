@@ -71,7 +71,7 @@ class NoodleSettings(object):
 
         # Cache timeouts (in seconds)
         self.audit_request_timeout = 20.0
-        self.audit_proof_request_timeout = 20.0
+        self.audit_proof_request_timeout = 1.0
         self.ping_timeout = 5.0
         self.half_block_timeout = 5.0
         self.half_block_timeout_retries = 6
