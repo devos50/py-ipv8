@@ -25,7 +25,7 @@ from .exceptions import InsufficientBalanceException, NoPathFoundException
 from .listener import BlockListener
 from .memory_database import NoodleMemoryDatabase
 from .payload import *
-from .queue import TransferQueue
+from .queue import TransferQueue, BlockProcessQueue
 from .settings import NoodleSettings, SecurityMode
 from ...community import Community
 from ...keyvault.crypto import default_eccrypto
@@ -105,6 +105,8 @@ class NoodleCommunity(Community):
         self.periodic_sync_lc = {}
         self.transfer_queue = TransferQueue()
         self.transfer_queue_timer = None
+        self.incoming_block_queue = BlockProcessQueue()
+        self.incoming_block_timer = None
 
         self.mem_db_flush_lc = None
         self.transfer_lc = LoopingCall(self.make_random_transfer)
@@ -703,6 +705,25 @@ class NoodleCommunity(Community):
         """
         peer = Peer(payload.public_key, source_address)
         block = self.get_block_class(payload.type).from_payload(payload, self.serializer)
+
+        self.incoming_block_queue.insert(peer, block)
+        if not self.incoming_block_timer:
+            self.incoming_block_timer = reactor.callLater(self.settings.block_queue_interval / 1000,
+                                                          self.evaluate_incoming_block_queue)
+
+    def evaluate_incoming_block_queue(self):
+        self.incoming_block_timer = None
+        block_info = self.incoming_block_queue.delete()
+        if not block_info:
+            return
+
+        peer, block = block_info
+
+        # Reschedule if the queue is not empty
+        if not self.incoming_block_queue.is_empty():
+            self.incoming_block_timer = reactor.callLater(self.settings.block_queue_interval / 1000,
+                                                          self.evaluate_incoming_block_queue)
+
         addCallback(self.process_half_block(block, peer), lambda _: None)
 
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockBroadcastPayload)
