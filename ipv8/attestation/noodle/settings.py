@@ -78,3 +78,6 @@ class NoodleSettings(object):
 
         # Maximum number of peers in each SubTrust community
         self.max_peers_subtrust = 30
+
+        # Queue interval times (in ms)
+        self.transfer_queue_interval = 2

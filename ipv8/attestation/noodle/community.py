@@ -25,6 +25,7 @@ from .exceptions import InsufficientBalanceException, NoPathFoundException
 from .listener import BlockListener
 from .memory_database import NoodleMemoryDatabase
 from .payload import *
+from .queue import TransferQueue
 from .settings import NoodleSettings, SecurityMode
 from ...community import Community
 from ...keyvault.crypto import default_eccrypto
@@ -102,6 +103,8 @@ class NoodleCommunity(Community):
         self.db_cleanup_lc.start(600)
         self.known_graph = nx.Graph()
         self.periodic_sync_lc = {}
+        self.transfer_queue = TransferQueue()
+        self.transfer_queue_timer = None
 
         self.mem_db_flush_lc = None
         self.transfer_lc = LoopingCall(self.make_random_transfer)
@@ -151,6 +154,31 @@ class NoodleCommunity(Community):
                 self.mint(self.settings.initial_mint_value)
 
     def transfer(self, dest_peer, spend_value):
+        if self.get_my_balance() < spend_value and not self.settings.is_hiding:
+            return fail(InsufficientBalanceException("Insufficient balance."))
+
+        return self.schedule_transfer(dest_peer, spend_value)
+
+    def schedule_transfer(self, peer, spend_value):
+        deferred = self.transfer_queue.insert(peer, spend_value)
+        if not self.transfer_queue_timer:
+            self.transfer_queue_timer = reactor.callLater(self.settings.transfer_queue_interval / 1000,
+                                                          self.evaluate_transfer_queue)
+        return deferred
+
+    def evaluate_transfer_queue(self):
+        self.transfer_queue_timer = None
+        block_info = self.transfer_queue.delete()
+        if not block_info:
+            return
+
+        deferred, dest_peer, spend_value = block_info
+
+        # Reschedule if the queue is not empty
+        if not self.transfer_queue.is_empty():
+            self.transfer_queue_timer = reactor.callLater(self.settings.transfer_queue_interval / 1000,
+                                                          self.evaluate_transfer_queue)
+
         self._logger.debug("Making spend to peer %s (value: %f)", dest_peer, spend_value)
 
         if dest_peer == self.my_peer:
@@ -164,19 +192,22 @@ class NoodleCommunity(Community):
             def on_block_success(block_tup):
                 return self.sign_block(self.my_peer, self.my_peer.public_key.key_to_bin(), block_type=b'claim',
                                        linked=block_tup[0])
-            return self.sign_block(self.my_peer, self.my_peer.public_key.key_to_bin(), block_type=b'spend', transaction=tx).addCallback(on_block_success)
+
+            return self.sign_block(self.my_peer, self.my_peer.public_key.key_to_bin(), block_type=b'spend',
+                                   transaction=tx).addCallback(on_block_success).chainDeferred(deferred)
 
         try:
             next_hop_peer, tx = self.prepare_spend_transaction(dest_peer.public_key.key_to_bin(), spend_value)
         except Exception as exc:
-            return fail(exc)
+            return deferred.errback(exc)
 
         if next_hop_peer != dest_peer:
             # Multi-hop payment, add condition + nonce
             nonce = self.persistence.get_new_peer_nonce(dest_peer.public_key.key_to_bin())
             condition = hexlify(dest_peer.public_key.key_to_bin()).decode()
             tx.update({'nonce': nonce, 'condition': condition})
-        return self.sign_block(next_hop_peer, next_hop_peer.public_key.key_to_bin(), block_type=b'spend', transaction=tx)
+        return self.sign_block(next_hop_peer, next_hop_peer.public_key.key_to_bin(), block_type=b'spend',
+                               transaction=tx).chainDeferred(deferred)
 
     def start_making_random_transfers(self):
         """
@@ -361,17 +392,14 @@ class NoodleCommunity(Community):
         my_pk = self.my_peer.public_key.key_to_bin()
         my_id = self.persistence.key_to_id(my_pk)
 
-        if self.get_my_balance() < spend_value and not self.settings.is_hiding:
-            raise InsufficientBalanceException("Insufficient balance.")
-        else:
-            peer = self.get_hop_to_peer(pub_key)
-            if not peer:
-                raise NoPathFoundException("No path to target peer found.")
-            peer_id = self.persistence.key_to_id(peer.public_key.key_to_bin())
-            pw_total = self.persistence.get_total_pairwise_spends(my_id, peer_id)
-            added = {"value": spend_value, "total_spend": pw_total + spend_value}
-            added.update(**kwargs)
-            return peer, added
+        peer = self.get_hop_to_peer(pub_key)
+        if not peer:
+            raise NoPathFoundException("No path to target peer found.")
+        peer_id = self.persistence.key_to_id(peer.public_key.key_to_bin())
+        pw_total = self.persistence.get_total_pairwise_spends(my_id, peer_id)
+        added = {"value": spend_value, "total_spend": pw_total + spend_value}
+        added.update(**kwargs)
+        return peer, added
 
     def prepare_mint_transaction(self, value):
         minter = self.persistence.key_to_id(EMPTY_PK)
