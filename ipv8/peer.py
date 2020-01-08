@@ -80,7 +80,7 @@ class Peer(object):
     def __eq__(self, other):
         if not isinstance(other, Peer):
             return False
-        return self.public_key.key_to_bin() == other.public_key.key_to_bin()
+        return self.mid == other.mid
 
     def __ne__(self, other):
         if not isinstance(other, Peer):
