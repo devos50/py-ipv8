@@ -1037,7 +1037,7 @@ class NoodleCommunity(Community):
             for peer in selected_peers:
                 self.send_audit_request(peer, crawl_id, peer_status)
             # when enough audits received, finalize
-            return addCallback(audit_deferred, lambda audits: self.finalize_audits(seq_num, peer_status, audits))
+            return addCallback(audit_deferred, lambda audits, seq_num=seq_num, peer_status=peer_status: self.finalize_audits(seq_num, peer_status, audits))
 
     def choose_community_peers(self, com_peers, current_seed, commitee_size):
         rand = random.Random(current_seed)
