@@ -176,12 +176,9 @@ class NoodleCommunity(Community):
 
         deferred, dest_peer, spend_value = block_info
 
-        # Reschedule if the queue is not empty
-        if not self.transfer_queue.is_empty():
-            self.transfer_queue_timer = reactor.callLater(self.settings.transfer_queue_interval / 1000,
-                                                          self.evaluate_transfer_queue)
-
         self._logger.debug("Making spend to peer %s (value: %f)", dest_peer, spend_value)
+
+        return_deferred = None
 
         if dest_peer == self.my_peer:
             # We are transferring something to ourselves
@@ -195,21 +192,29 @@ class NoodleCommunity(Community):
                 return self.sign_block(self.my_peer, self.my_peer.public_key.key_to_bin(), block_type=b'claim',
                                        linked=block_tup[0])
 
-            return self.sign_block(self.my_peer, self.my_peer.public_key.key_to_bin(), block_type=b'spend',
-                                   transaction=tx).addCallback(on_block_success).chainDeferred(deferred)
+            return_deferred = self.sign_block(self.my_peer, self.my_peer.public_key.key_to_bin(),
+                                              block_type=b'spend',
+                                              transaction=tx).addCallback(on_block_success).chainDeferred(deferred)
+        else:
+            try:
+                next_hop_peer, tx = self.prepare_spend_transaction(dest_peer.public_key.key_to_bin(), spend_value)
+                if next_hop_peer != dest_peer:
+                    # Multi-hop payment, add condition + nonce
+                    nonce = self.persistence.get_new_peer_nonce(dest_peer.public_key.key_to_bin())
+                    condition = hexlify(dest_peer.public_key.key_to_bin()).decode()
+                    tx.update({'nonce': nonce, 'condition': condition})
 
-        try:
-            next_hop_peer, tx = self.prepare_spend_transaction(dest_peer.public_key.key_to_bin(), spend_value)
-        except Exception as exc:
-            return deferred.errback(exc)
+                return_deferred = self.sign_block(next_hop_peer, next_hop_peer.public_key.key_to_bin(),
+                                                  block_type=b'spend', transaction=tx).chainDeferred(deferred)
+            except Exception as exc:
+                return_deferred = deferred.errback(exc)
 
-        if next_hop_peer != dest_peer:
-            # Multi-hop payment, add condition + nonce
-            nonce = self.persistence.get_new_peer_nonce(dest_peer.public_key.key_to_bin())
-            condition = hexlify(dest_peer.public_key.key_to_bin()).decode()
-            tx.update({'nonce': nonce, 'condition': condition})
-        return self.sign_block(next_hop_peer, next_hop_peer.public_key.key_to_bin(), block_type=b'spend',
-                               transaction=tx).chainDeferred(deferred)
+        # Reschedule if the queue is not empty
+        if not self.transfer_queue.is_empty():
+            self.transfer_queue_timer = reactor.callLater(self.settings.transfer_queue_interval / 1000,
+                                                          self.evaluate_transfer_queue)
+
+        return return_deferred
 
     def start_making_random_transfers(self):
         """
@@ -719,12 +724,12 @@ class NoodleCommunity(Community):
 
         peer, block = block_info
 
+        addCallback(self.process_half_block(block, peer), lambda _: None)
+
         # Reschedule if the queue is not empty
         if not self.incoming_block_queue.is_empty():
             self.incoming_block_timer = reactor.callLater(self.settings.block_queue_interval / 1000,
                                                           self.evaluate_incoming_block_queue)
-
-        addCallback(self.process_half_block(block, peer), lambda _: None)
 
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockBroadcastPayload)
     def received_half_block_broadcast(self, source_address, dist, payload):
