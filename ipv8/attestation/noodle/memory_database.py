@@ -435,7 +435,7 @@ class NoodleMemoryDatabase(object):
                                      'seq_num': block.sequence_number, "link": block.link_sequence_number,
                                      'from_id': from_id, 'to_id': to_id
                                      })
-                self.block_time.clear()
+                    self.block_time.pop(block_id)
 
     def commit(self, my_pub_key):
         """
