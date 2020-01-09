@@ -156,8 +156,8 @@ class NoodleCommunity(Community):
                 self.mint(self.settings.initial_mint_value)
 
     def transfer(self, dest_peer, spend_value):
-        if self.get_my_balance() < spend_value and not self.settings.is_hiding:
-            return fail(InsufficientBalanceException("Insufficient balance."))
+        # if self.get_my_balance() < spend_value and not self.settings.is_hiding:
+        #     return fail(InsufficientBalanceException("Insufficient balance."))
 
         return self.schedule_transfer(dest_peer, spend_value)
 
