@@ -872,7 +872,7 @@ class NoodleCommunity(Community):
         linked = self.persistence.get_linked(blk)
         if blk.link_sequence_number == UNKNOWN_SEQ and blk.link_public_key == self.my_peer.public_key.key_to_bin() and linked:
             # Send the already created block back
-            self.send_block(blk, address=peer.address)
+            self.send_block(linked, address=peer.address)
 
         # Is this a request, addressed to us, and have we not signed it already?
         if (blk.link_sequence_number != UNKNOWN_SEQ
