@@ -616,6 +616,7 @@ class NoodleCommunity(Community):
         return self.sign_block(self.my_peer, linked=source, public_key=public_key, block_type=block_type,
                                additional_info=additional_info)
 
+    @synchronized
     def sign_block(self, peer, public_key=EMPTY_PK, block_type=b'unknown', transaction=None, linked=None,
                    additional_info=None, double_spend_block=None, from_peer=None, from_peer_seq_num=None):
         """
