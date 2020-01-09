@@ -165,7 +165,7 @@ class NoodleCommunity(Community):
         deferred = self.transfer_queue.insert(peer, spend_value)
         if not self.transfer_queue_timer:
             self.transfer_queue_timer = reactor.callLater(self.settings.transfer_queue_interval / 1000,
-                                                          self.evaluate_transfer_queue)
+                                                          reactor.callInThread, self.evaluate_transfer_queue)
         return deferred
 
     def evaluate_transfer_queue(self):
@@ -212,7 +212,7 @@ class NoodleCommunity(Community):
         # Reschedule if the queue is not empty
         if not self.transfer_queue.is_empty():
             self.transfer_queue_timer = reactor.callLater(self.settings.transfer_queue_interval / 1000,
-                                                          self.evaluate_transfer_queue)
+                                                          reactor.callInThread, self.evaluate_transfer_queue)
 
         return return_deferred
 
@@ -714,7 +714,7 @@ class NoodleCommunity(Community):
         self.incoming_block_queue.insert(peer, block)
         if not self.incoming_block_timer:
             self.incoming_block_timer = reactor.callLater(self.settings.block_queue_interval / 1000,
-                                                          self.evaluate_incoming_block_queue)
+                                                          reactor.callInThread, self.evaluate_incoming_block_queue)
 
     def evaluate_incoming_block_queue(self):
         self.incoming_block_timer = None
@@ -729,7 +729,7 @@ class NoodleCommunity(Community):
         # Reschedule if the queue is not empty
         if not self.incoming_block_queue.is_empty():
             self.incoming_block_timer = reactor.callLater(self.settings.block_queue_interval / 1000,
-                                                          self.evaluate_incoming_block_queue)
+                                                          reactor.callInThread, self.evaluate_incoming_block_queue)
 
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockBroadcastPayload)
     def received_half_block_broadcast(self, source_address, dist, payload):
