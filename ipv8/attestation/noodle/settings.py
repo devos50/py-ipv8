@@ -82,3 +82,4 @@ class NoodleSettings(object):
         # Queue interval times (in ms)
         self.transfer_queue_interval = 2
         self.block_queue_interval = 2
+        self.audit_response_queue_interval = 2

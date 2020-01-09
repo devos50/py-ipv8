@@ -47,3 +47,26 @@ class BlockProcessQueue(object):
             return None
 
         return self.queue.pop(0)
+
+
+class AuditResponseQueue(object):
+    """
+    This class implements a queue for responses to audit requests.
+    """
+    def __init__(self):
+        self.queue = []
+
+    def is_empty(self):
+        return not self.queue
+
+    def insert(self, address, audit_id, proofs, status):
+        """
+        Insert an item in the queue. Return a deferred if the transaction is made.
+        """
+        self.queue.append((address, audit_id, proofs, status))
+
+    def delete(self):
+        if not self.queue:
+            return None
+
+        return self.queue.pop(0)

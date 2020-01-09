@@ -25,7 +25,7 @@ from .exceptions import InsufficientBalanceException, NoPathFoundException
 from .listener import BlockListener
 from .memory_database import NoodleMemoryDatabase
 from .payload import *
-from .queue import TransferQueue, BlockProcessQueue
+from .queue import TransferQueue, BlockProcessQueue, AuditResponseQueue
 from .settings import NoodleSettings, SecurityMode
 from ...community import Community
 from ...keyvault.crypto import default_eccrypto
@@ -107,6 +107,8 @@ class NoodleCommunity(Community):
         self.transfer_queue_timer = None
         self.incoming_block_queue = BlockProcessQueue()
         self.incoming_block_timer = None
+        self.audit_response_queue = AuditResponseQueue()
+        self.audit_response_queue_timer = None
 
         self.mem_db_flush_lc = None
         self.transfer_lc = LoopingCall(self.make_random_transfer)
@@ -992,13 +994,21 @@ class NoodleCommunity(Community):
         self.persistence.add_peer_proofs(my_id, audit_seq, status, proofs)
         # Get peers requested
         processed_ids = set()
+        responses_to_send = []
         for seq, peers_val in list(self.proof_requests.items()):
             if seq <= audit_seq:
                 for p, audit_id in peers_val:
                     if (p, audit_id) not in processed_ids:
-                        self.respond_with_audit_proof(p, audit_id, proofs, status)
+                        responses_to_send.append((p, audit_id, proofs, status))
                         processed_ids.add((p, audit_id))
                 del self.proof_requests[seq]
+
+        for p, audit_id, proofs, status in responses_to_send:
+            self.audit_response_queue.insert(p, audit_id, proofs, status)
+
+        if not self.audit_response_queue_timer:
+            self.audit_response_queue_timer = reactor.callLater(self.settings.audit_response_queue_interval / 1000,
+                                                                reactor.callInThread, self.evaluate_audit_response_queue)
 
     def trustchain_active_sync(self, community_mid):
         # choose the peers
@@ -1099,6 +1109,21 @@ class NoodleCommunity(Community):
 
             packet = self._ez_pack(self._prefix, 14, [dist, payload], False)
             self.endpoint.send(address, packet)
+
+    def evaluate_audit_response_queue(self):
+        self.audit_response_queue_timer = None
+        audit_info = self.audit_response_queue.delete()
+        if not audit_info:
+            return
+
+        address, audit_id, proofs, status = audit_info
+
+        self.respond_with_audit_proof(address, audit_id, proofs, status)
+
+        # Reschedule if the queue is not empty
+        if not self.audit_response_queue.is_empty():
+            self.audit_response_queue_timer = reactor.callLater(self.settings.audit_response_queue_interval / 1000,
+                                                                reactor.callInThread, self.evaluate_audit_response_queue)
 
     @synchronized
     @lazy_wrapper_unsigned_wd(GlobalTimeDistributionPayload, AuditProofResponsePayload)
