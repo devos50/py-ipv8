@@ -869,10 +869,15 @@ class NoodleCommunity(Community):
                     self.logger.error("Got conditional block without a proof %s ", cache.from_peer)
                     return fail(RuntimeError("Block could not be validated: %s, %s" % (validation[0], validation[1])))
 
+        linked = self.persistence.get_linked(blk)
+        if blk.link_sequence_number == UNKNOWN_SEQ and blk.link_public_key == self.my_peer.public_key.key_to_bin() and linked:
+            # Send the already created block back
+            self.send_block(blk, address=peer.address)
+
         # Is this a request, addressed to us, and have we not signed it already?
         if (blk.link_sequence_number != UNKNOWN_SEQ
                 or blk.link_public_key != self.my_peer.public_key.key_to_bin()
-                or self.persistence.get_linked(blk) is not None):
+                or linked is not None):
             return succeed(None)
 
         self.logger.info("Received request block addressed to us (%s)", blk)
