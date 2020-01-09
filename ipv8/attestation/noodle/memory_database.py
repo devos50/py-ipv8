@@ -424,7 +424,8 @@ class NoodleMemoryDatabase(object):
         if self.block_file:
             with open(self.block_file, "a") as t_file:
                 writer = csv.DictWriter(t_file, ['time', 'transaction', 'type', "seq_num", "link", 'from_id', 'to_id'])
-                for block_id in self.block_time:
+                block_ids = list(self.block_time.keys())
+                for block_id in block_ids:
                     block = self.block_cache[block_id]
                     time = self.block_time[block_id]
                     from_id = hexlify(block.public_key).decode()[-8:]
