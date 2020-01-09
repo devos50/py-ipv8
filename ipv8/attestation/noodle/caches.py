@@ -109,7 +109,7 @@ class HalfBlockSignCache(NumberCache):
             return
         self._logger.info("Timeout for sign request for half block %s, note that it can still arrive!", self.half_block)
         if self.timeouts < self.community.settings.half_block_timeout_retries:
-            self.community.send_block(self.half_block, address=self.socket_address)
+            reactor.callInThread(self.community.send_block, self.half_block, address=self.socket_address)
 
             def add_later(_):
                 self.community.request_cache.add(HalfBlockSignCache(self.community, self.half_block, self.sign_deferred,
