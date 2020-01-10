@@ -99,8 +99,6 @@ class NoodleCommunity(Community):
                           hexlify(self.my_peer.public_key.key_to_bin()))
         self.shutting_down = False
         self.listeners_map = {}  # Map of block_type -> [callbacks]
-        self.db_cleanup_lc = self.register_task("db_cleanup", LoopingCall(self.do_db_cleanup))
-        self.db_cleanup_lc.start(600)
         self.known_graph = nx.Graph()
         self.periodic_sync_lc = {}
         self.transfer_queue = TransferQueue()
