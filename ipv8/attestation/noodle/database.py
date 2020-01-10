@@ -21,7 +21,7 @@ class NoodleDB(Database):
     Connection layer to SQLiteDB.
     Ensures a proper DB schema on startup.
     """
-    LATEST_DB_VERSION = 7
+    LATEST_DB_VERSION = 8
 
     def __init__(self, working_directory, db_name, my_pk=None):
         """
@@ -404,7 +404,7 @@ class NoodleDB(Database):
         :param current_version: the version of the script to return.
         """
         # All these version introduce changes that are not backwards compatible
-        if current_version <= 4 or current_version == 6:
+        if current_version <= 4 or current_version == 6 or current_version == 7:
             return u"""
             DROP TABLE IF EXISTS blocks;
             DROP TABLE IF EXISTS option;
