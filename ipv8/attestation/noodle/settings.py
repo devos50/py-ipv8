@@ -67,7 +67,8 @@ class NoodleSettings(object):
         self.minters = []
 
         # Crawling identities
-        self.crawlers = [b"4c69624e61434c504b3a60001170dcec5f4774e3ea8d5d6b89c98e5b18f10adb3e02b27137d965f1e4188d872bf6a30b6516b98fdb9839f2920ccf42a30a723ab07de7011bbbb245b20b"]
+        self.crawlers = [b"4c69624e61434c504b3a60001170dcec5f4774e3ea8d5d6b89c98e5b18f10adb3e02b27137d965f1e4188d872bf6a30b6516b98fdb9839f2920ccf42a30a723ab07de7011bbbb245b20b",
+                         b"4c69624e61434c504b3ad87cdb35fb1025904627aa84483a19e5640a1bebb2f6081e87cd635d22bbbe7cc8467a252d9f5343e10e182939225fea982192396837e9fb4d81fb4f26b74af3"]
 
         # Cache timeouts (in seconds)
         self.audit_request_timeout = 0.9
