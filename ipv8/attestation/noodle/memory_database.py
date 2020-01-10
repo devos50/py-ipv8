@@ -63,6 +63,9 @@ class NoodleMemoryDatabase(object):
                 peer_mid = sha1(block.public_key).digest()
                 self.peer_map[peer_mid] = block.public_key
 
+        self.total_spend_sum = {}
+        self.total_claim_sum = {}
+
     def key_to_id(self, key):
         return hexlify(key)[-KEY_LEN:].decode()
 
@@ -127,6 +130,7 @@ class NoodleMemoryDatabase(object):
                 id_to not in self.work_graph[id_from] or \
                 'total_spend' not in self.work_graph[id_from][id_to] or \
                 self.work_graph[id_from][id_to]["total_spend"] < float(spend.transaction["total_spend"]):
+            self.update_cum_value(id_from, id_to, float(spend.transaction["total_spend"]))
             self.work_graph.add_edge(id_from, id_to,
                                      total_spend=float(spend.transaction["total_spend"]),
                                      spend_num=spend.sequence_number)
@@ -144,6 +148,7 @@ class NoodleMemoryDatabase(object):
                 id_to not in self.work_graph[id_from] or \
                 'total_spend' not in self.work_graph[id_from][id_to] or \
                 self.work_graph[id_from][id_to]["total_spend"] < float(claim.transaction["total_spend"]):
+            self.update_cum_value(id_from, id_to, float(claim.transaction["total_spend"]))
             self.work_graph.add_edge(id_from, id_to,
                                      total_spend=float(claim.transaction["total_spend"]),
                                      spend_num=claim.link_sequence_number,
@@ -167,6 +172,7 @@ class NoodleMemoryDatabase(object):
         """
         val = self.get_total_pairwise_spends(spender, claimer)
         if value > val:
+            self.update_cum_value(spender, claimer, value)
             self.work_graph.add_edge(spender, claimer,
                                      total_spend=value,
                                      verified=True,
@@ -184,6 +190,7 @@ class NoodleMemoryDatabase(object):
         """
         val = self.get_total_pairwise_spends(spender, claimer)
         if value > val:
+            self.update_cum_value(spender, claimer, value)
             self.work_graph.add_edge(spender, claimer,
                                      total_spend=value,
                                      verified=True,
@@ -225,10 +232,10 @@ class NoodleMemoryDatabase(object):
             return self.work_graph[peer_a][peer_b]["total_spend"]
 
     def get_total_spends(self, peer_id):
-        if peer_id not in self.work_graph:
+        if peer_id not in self.total_spend_sum:
             return 0
         else:
-            return sum(self.work_graph[peer_id][k]["total_spend"] for k in self.work_graph.successors(peer_id))
+            return self.total_spend_sum[peer_id]
 
     def is_verified(self, p1, p2):
         return 'verified' in self.work_graph[p1][p2] and self.work_graph[p1][p2]['verified']
@@ -261,11 +268,10 @@ class NoodleMemoryDatabase(object):
         return status
 
     def get_total_claims(self, peer_id, only_verified=True):
-        if peer_id not in self.work_graph:
+        if peer_id not in self.total_claim_sum:
             # Peer not known
             return 0
-        return sum(self.work_graph[k][peer_id]['total_spend'] for k in self.work_graph.predecessors(peer_id)
-                   if self.is_verified(k, peer_id) or not only_verified)
+        return self.total_claim_sum[peer_id]
 
     def _construct_path_id(self, path):
         res_id = ""
@@ -290,6 +296,14 @@ class NoodleMemoryDatabase(object):
             return 0
         else:
             return self.claim_proofs[peer_id][0]
+
+    def update_cum_value(self, p1, p2, value):
+        if not self.work_graph.has_edge(p1, p2) or value > self.work_graph[p1][p2]['total_spend']:
+            prev_spend = self.get_total_pairwise_spends(p1, p2)
+            prev_cum_spend = self.total_spend_sum[p1] if p1 in self.total_spend_sum else 0
+            prev_cum_claim = self.total_claim_sum[p2] if p2 in self.total_claim_sum else 0
+            self.total_spend_sum[p1] = prev_cum_spend - prev_spend + value
+            self.total_claim_sum[p2] = prev_cum_claim - prev_spend + value
 
     def dump_peer_status(self, peer_id, status):
         if 'spends' not in status or 'claims' not in status:
