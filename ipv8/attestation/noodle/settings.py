@@ -75,7 +75,7 @@ class NoodleSettings(object):
         self.audit_proof_request_timeout = 2.0
         self.ping_timeout = 5.0
         self.half_block_timeout = 5.0
-        self.half_block_timeout_retries = 6
+        self.half_block_timeout_retries = 30
 
         # Maximum number of peers in each SubTrust community
         self.max_peers_subtrust = 30
