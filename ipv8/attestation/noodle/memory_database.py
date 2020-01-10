@@ -248,11 +248,13 @@ class NoodleMemoryDatabase(object):
             return status
         # Get all spends
         status['spends'] = {}
-        for v in self.work_graph.successors(peer_id):
+        successors = list(self.work_graph.successors(peer_id))
+        for v in successors:
             status['spends'][v] = (self.get_total_pairwise_spends(peer_id, v),
                                    self.get_last_pairwise_spend_num(peer_id, v))
         status['claims'] = {}
-        for v in self.work_graph.predecessors(peer_id):
+        predecessors = list(self.work_graph.predecessors(peer_id))
+        for v in predecessors:
             status['claims'][v] = (self.get_total_pairwise_spends(v, peer_id),
                                    self.get_last_pairwise_claim_num(v, peer_id))
         status['seq_num'] = self.get_latest(public_key).sequence_number
