@@ -891,12 +891,17 @@ class NoodleCommunity(Community):
 
         peer_id = self.persistence.key_to_id(blk.public_key)
         if blk.type == b'spend':
+            peer_balance = self.persistence.get_balance(peer_id)
+
+            # Refuse to sign the block if we have hard proof that the peer balance is negative
+            if ((status and audit_proofs) or self.persistence.get_peer_proofs(peer_id, blk.sequence_number)) and peer_balance < 0:
+                self.logger.info("Not signing block %s due to negative balance", blk)
+                return succeed(None)
+
             # Request proofs from the peer if:
             #  1) If estimated balance less than zero
             #  2) If no proofs attached, no recent local proofs and depending on risk
-            if self.persistence.get_balance(peer_id) < 0 or \
-                        (not status and not audit_proofs and not self.persistence.get_peer_proofs(peer_id, blk.sequence_number) and
-                         random.random() > self.settings.risk):
+            if peer_balance < 0 or (not status and not audit_proofs and not self.persistence.get_peer_proofs(peer_id, blk.sequence_number) and random.random() > self.settings.risk):
                 request_info_deferred = self.validate_spend(blk, peer)
                 return addCallback(request_info_deferred, lambda status_and_proofs: self.process_half_block(blk, peer, *status_and_proofs))
             if 'condition' in blk.transaction:
