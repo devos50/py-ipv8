@@ -255,6 +255,37 @@ class TestNoodleCommunityThreeNodes(TestNoodleCommunityBase):
         latest_blocks = self.nodes[2].overlay.persistence.get_latest_blocks(my_pub_key)
         self.assertEqual(len(latest_blocks), 1)
 
+    @inlineCallbacks
+    def test_multi_hop_transfer(self):
+        """
+        Test sending a multi-hop payment from peer A to C, using B as relay.
+        """
+        self.nodes[0].overlay.walk_to(self.nodes[1].overlay.endpoint.wan_address)
+        self.nodes[1].overlay.walk_to(self.nodes[2].overlay.endpoint.wan_address)
+        self.nodes[0].overlay.known_graph.add_edge(self.nodes[0].overlay.my_peer.public_key.key_to_bin(),
+                                                   self.nodes[1].overlay.my_peer.public_key.key_to_bin())
+        self.nodes[0].overlay.known_graph.add_edge(self.nodes[1].overlay.my_peer.public_key.key_to_bin(),
+                                                   self.nodes[2].overlay.my_peer.public_key.key_to_bin())
+        yield self.deliver_messages()
+
+        yield self.nodes[0].overlay.transfer(self.nodes[2].overlay.my_peer, 10)
+
+        # Check balances
+        my_pk = self.nodes[0].overlay.my_peer.public_key.key_to_bin()
+        my_id = self.nodes[0].overlay.persistence.key_to_id(my_pk)
+        self.assertEqual(self.nodes[0].overlay.persistence.get_balance(my_id),
+                         self.nodes[0].overlay.settings.initial_mint_value - 10)
+
+        my_pk = self.nodes[1].overlay.my_peer.public_key.key_to_bin()
+        my_id = self.nodes[1].overlay.persistence.key_to_id(my_pk)
+        self.assertEqual(self.nodes[1].overlay.persistence.get_balance(my_id),
+                         self.nodes[1].overlay.settings.initial_mint_value)
+
+        my_pk = self.nodes[2].overlay.my_peer.public_key.key_to_bin()
+        my_id = self.nodes[2].overlay.persistence.key_to_id(my_pk)
+        self.assertEqual(self.nodes[2].overlay.persistence.get_balance(my_id),
+                         self.nodes[2].overlay.settings.initial_mint_value + 10)
+
 
 class TestNoodleCommunityFiveNodes(TestNoodleCommunityBase):
     __testing__ = True
@@ -278,6 +309,31 @@ class TestNoodleCommunityFiveNodes(TestNoodleCommunityBase):
         my_pub_key = self.nodes[3].overlay.my_peer.public_key.key_to_bin()
         latest_blocks = self.nodes[3].overlay.persistence.get_latest_blocks(my_pub_key)
         self.assertEqual(len(latest_blocks), 1)
+
+    @inlineCallbacks
+    def test_multi_hop_transfer(self):
+        """
+        Test sending a multi-hop payment with three relays
+        """
+        for target_peer_id in range(1, 5):
+            self.nodes[target_peer_id - 1].overlay.walk_to(self.nodes[target_peer_id].overlay.endpoint.wan_address)
+            for peer_id in range(0, 5):
+                self.nodes[peer_id].overlay.known_graph.add_edge(self.nodes[target_peer_id - 1].overlay.my_peer.public_key.key_to_bin(),
+                                                                 self.nodes[target_peer_id].overlay.my_peer.public_key.key_to_bin())
+        yield self.deliver_messages()
+
+        yield self.nodes[0].overlay.transfer(self.nodes[4].overlay.my_peer, 10)
+
+        # Check balances
+        my_pk = self.nodes[0].overlay.my_peer.public_key.key_to_bin()
+        my_id = self.nodes[0].overlay.persistence.key_to_id(my_pk)
+        self.assertEqual(self.nodes[0].overlay.persistence.get_balance(my_id),
+                         self.nodes[0].overlay.settings.initial_mint_value - 10)
+
+        my_pk = self.nodes[4].overlay.my_peer.public_key.key_to_bin()
+        my_id = self.nodes[4].overlay.persistence.key_to_id(my_pk)
+        self.assertEqual(self.nodes[4].overlay.persistence.get_balance(my_id),
+                         self.nodes[4].overlay.settings.initial_mint_value + 10)
 
     # @inlineCallbacks
     # def test_double_spend_hiding(self):
