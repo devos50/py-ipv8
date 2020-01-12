@@ -1653,8 +1653,9 @@ class NoodleCommunity(Community):
 
             if self.bootstrap_master:
                 self.logger.info('Proceed with a bootstrap master')
-                for k in self.bootstrap_master:
-                    community.walk_to(k)
+                for bootstrap_peer in self.bootstrap_master:
+                    reactor.callLater(random.random() * self.settings.subtrust_bootstrap_time, community.walk_to,
+                                      bootstrap_peer)
             else:
                 self.ipv8.strategies.append((RandomWalk(community), self.settings.max_peers_subtrust))
             self.build_security_community(peer.mid)

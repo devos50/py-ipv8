@@ -77,8 +77,9 @@ class NoodleSettings(object):
         self.half_block_timeout = 5.0
         self.half_block_timeout_retries = 30
 
-        # Maximum number of peers in each SubTrust community
+        # SubTrust community settings
         self.max_peers_subtrust = 30
+        self.subtrust_bootstrap_time = 5
 
         # Queue interval times (in ms)
         self.transfer_queue_interval = 2
