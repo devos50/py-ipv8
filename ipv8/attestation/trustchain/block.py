@@ -240,10 +240,10 @@ class TrustChainBlock(object):
         self.update_block_consistency(blk, result, database)
 
         # Check if the linked block as retrieved from our database is the same as the one linked by this block.
-        self.update_linked_consistency(database, link, result)
+        #self.update_linked_consistency(database, link, result)
 
         # Check if the chain of blocks is properly hooked up.
-        self.update_chain_consistency(prev_blk, next_blk, result)
+        self.update_chain_consistency(prev_blk, next_blk, result, database)
 
         return result.state, result.errors
 
@@ -411,7 +411,7 @@ class TrustChainBlock(object):
                         link.link_public_key != ANY_COUNTERPARTY_PK:
                     result.err("Double countersign fraud")
 
-    def update_chain_consistency(self, prev_blk, next_blk, result):
+    def update_chain_consistency(self, prev_blk, next_blk, result, database):
         """
         Check for chain order consistency.
 
@@ -434,9 +434,10 @@ class TrustChainBlock(object):
             if prev_blk.sequence_number >= self.sequence_number:
                 result.err("Previous block sequence number mismatch")
             if not is_prev_gap and prev_blk.hash != self.previous_hash:
-                result.err("Previous hash is not equal to the hash id of the previous block")
+                #result.err("Previous hash is not equal to the hash id of the previous block")
                 # Is this fraud? It is certainly an error, but fixing it would require a different signature on the same
                 # sequence number which is fraud.
+                database.remove_block(prev_blk)
 
         if next_blk:
             if next_blk.public_key != self.public_key:
@@ -444,8 +445,9 @@ class TrustChainBlock(object):
             if next_blk.sequence_number <= self.sequence_number:
                 result.err("Next block sequence number mismatch")
             if not is_next_gap and next_blk.previous_hash != self.hash:
-                result.err("Next hash is not equal to the hash id of the block")
+                #result.err("Next hash is not equal to the hash id of the block")
                 # Again, this might not be fraud, but fixing it can only result in fraud.
+                database.remove_block(next_blk)
 
     def sign(self, key):
         """
