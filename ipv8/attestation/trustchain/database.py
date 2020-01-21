@@ -2,6 +2,8 @@
 This file contains everything related to persistence for TrustChain.
 """
 import os
+import time
+from asyncio import sleep, ensure_future
 from binascii import hexlify
 
 from .block import TrustChainBlock
@@ -17,7 +19,7 @@ class TrustChainDB(Database):
     Connection layer to SQLiteDB.
     Ensures a proper DB schema on startup.
     """
-    LATEST_DB_VERSION = 7
+    LATEST_DB_VERSION = 9
 
     def __init__(self, working_directory, db_name, my_pk=None):
         """
@@ -42,6 +44,51 @@ class TrustChainDB(Database):
 
         self.open()
 
+        # Pre-load some data to speed up queries
+        start_time = time.time()
+        self.num_blocks = list(self.execute(u"SELECT COUNT(*) FROM blocks"))[0][0]
+        self._logger.info("Determined number of blocks (%d) in %f seconds", self.num_blocks, time.time() - start_time)
+        start_time = time.time()
+        self.pubkeys = set()
+        for row in self.execute(u"SELECT DISTINCT public_key FROM blocks"):
+            pub_key = hexlify(row[0])
+            self.pubkeys.add(pub_key)
+        self._logger.info("Determined unique public keys (%d) in %f seconds", len(self.pubkeys), time.time() - start_time)
+        start_time = time.time()
+        #var_sizes = list(self.execute(u"SELECT SUM(LENGTH(type)), SUM(LENGTH(tx)) FROM blocks"))[0]
+        #if var_sizes[0] != None:
+        #    self.total_db_size = 260 * self.num_blocks + var_sizes[0] + var_sizes[1]
+        #else:
+        self.total_db_size = 0
+
+        self._logger.info("Determined total database size in %f seconds", time.time() - start_time)
+        self._logger.info("Loaded TrustChain database information in memory")
+
+        self.block_creation_statistics = None
+
+        self.tx_rate = 0.0
+
+        # Schedule the construction of creation statistics
+        #ensure_future(self.build_statistics_lc())
+
+    async def build_statistics_lc(self):
+        while True:
+            self.build_statistics()
+            await sleep(3600)
+
+    def build_statistics(self):
+        """
+        Build the statistics.
+        """
+        self.block_creation_statistics = self.get_block_creation_daily_statistics()
+
+        # Get the average transaction rate
+        start_time = time.time()
+        self.tx_rate = list(self.execute(u"SELECT COUNT()/(24.0*3600.0) FROM blocks WHERE "
+                                         u"block_timestamp >= CAST((julianday('now') - 2440587.5)*86400000-24*3600*1000 AS INTEGER) "
+                                         u"AND block_timestamp <= CAST((julianday('now') - 2440587.5)*86400000 AS INTEGER)"))[0][0]
+        self._logger.info("Determined transaction rate (%f) in %f seconds", self.tx_rate, time.time() - start_time)
+
     def get_block_class(self, block_type):
         """
         Get the block class for a specific block type.
@@ -56,11 +103,15 @@ class TrustChainDB(Database):
         Persist a block
         :param block: The data that will be saved.
         """
+        db_data = block.pack_db_insert()
         self.execute(
             u"INSERT INTO blocks (type, tx, public_key, sequence_number, link_public_key,"
             u"link_sequence_number, previous_hash, signature, block_timestamp, block_hash) VALUES(?,?,?,?,?,?,?,?,?,?)",
-            block.pack_db_insert())
+            db_data)
         self.commit()
+        self.num_blocks += 1
+        self.pubkeys.add(hexlify(block.public_key))
+        self.total_db_size += 260 + len(db_data[0]) + len(db_data[1])
 
         if self.my_blocks_cache and (block.public_key == self.my_pk or block.link_public_key == self.my_pk):
             self.my_blocks_cache.add(block)
@@ -346,6 +397,19 @@ class TrustChainDB(Database):
                                   (database_blob(public_key),)))[0][0]
         return count > 0
 
+    def get_block_creation_daily_statistics(self):
+        """
+        Return daily statistics about block creation.
+        """
+        query = u"select strftime('%d-%m-%Y', block_timestamp/1000, 'unixepoch'), " \
+                u"COUNT(*) from blocks group by strftime('%d-%m-%Y', block_timestamp/1000, 'unixepoch') " \
+                u"ORDER BY block_timestamp"
+        res = list(self.execute(query))
+        creation_info = []
+        for day_info in res:
+            creation_info.append(day_info)
+        return creation_info
+
     def get_sql_header(self):
         """
         Return the first part of a generic sql select query.
@@ -390,6 +454,9 @@ class TrustChainDB(Database):
         CREATE INDEX IF NOT EXISTS link_pub_key_ind ON blocks (link_public_key);
         CREATE INDEX IF NOT EXISTS seq_num_ind ON blocks (sequence_number);
         CREATE INDEX IF NOT EXISTS link_seq_num_ind ON blocks (link_sequence_number);
+        CREATE INDEX IF NOT EXISTS timestamp_ind ON blocks (block_timestamp);
+        CREATE INDEX IF NOT EXISTS hash_ind ON blocks (block_hash);
+        CREATE INDEX IF NOT EXISTS type_ind ON blocks (type);
         """ % (self.get_sql_create_blocks_table("blocks", "public_key, sequence_number"),
                self.get_sql_create_blocks_table("double_spends", "public_key, sequence_number, block_hash"),
                str(self.LATEST_DB_VERSION))

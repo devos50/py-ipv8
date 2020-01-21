@@ -338,14 +338,11 @@ class TrustChainCommunity(Community):
         :param block: The block to validate and persist.
         :return: [ValidationResult]
         """
-        validation = block.validate(self.persistence)
-        if validation[0] == ValidationResult.invalid:
-            pass
-        elif not self.persistence.contains(block):
+        if not self.persistence.contains(block):
             self.persistence.add_block(block)
             self.notify_listeners(block)
 
-        return validation
+        return ValidationResult.valid, []
 
     def notify_listeners(self, block):
         """
