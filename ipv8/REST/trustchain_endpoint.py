@@ -60,15 +60,24 @@ class TrustchainEndpoint(BaseEndpoint):
 
         limit = 10
         offset = 0
+        max_time = 0
+        block_type = None
         if request.query and 'limit' in request.query:
             limit = int(request.query['limit'])
 
         if request.query and 'offset' in request.query:
             offset = int(request.query['offset'])
 
+        if request.query and 'maxtime' in request.query:
+            max_time = int(request.query['maxtime'])
+
+        if request.query and 'type' in request.query:
+            block_type = int(request.query['type'])
+
         return Response({
             "blocks": [dict(block) for block in
-                       self.trustchain.persistence.get_recent_blocks(limit=limit, offset=offset)]
+                       self.trustchain.persistence.get_recent_blocks(limit=limit, offset=offset,
+                                                                     max_time=max_time, block_type=block_type)]
         })
 
     @docs(
