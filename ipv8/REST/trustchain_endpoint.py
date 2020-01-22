@@ -24,7 +24,9 @@ class TrustchainEndpoint(BaseEndpoint):
         self.app.add_routes([web.get('/recent', self.get_recent_blocks),
                              web.get('/blocks/{block_hash}', self.get_block),
                              web.get('/users', self.get_users),
-                             web.get('/users/{pub_key}/blocks', self.get_blocks_for_user)])
+                             web.get('/users/{pub_key}/blocks', self.get_blocks_for_user),
+                             web.get('/statistics', self.get_statistics),
+                             web.get('/statistics/block_creation', self.get_block_creation_statistics)])
 
     def initialize(self, session):
         super(TrustchainEndpoint, self).initialize(session)
@@ -182,3 +184,9 @@ class TrustchainEndpoint(BaseEndpoint):
             blocks_list.append(block_dict)
 
         return Response({"blocks": blocks_list})
+
+    async def get_statistics(self, request):
+        return Response({"statistics": self.trustchain.persistence.get_statistics()})
+
+    async def get_block_creation_statistics(self, request):
+        return Response({"statistics": self.trustchain.persistence.block_creation_statistics})

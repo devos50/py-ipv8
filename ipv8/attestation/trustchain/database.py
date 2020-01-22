@@ -51,7 +51,7 @@ class TrustChainDB(Database):
         start_time = time.time()
         self.pubkeys = set()
         for row in self.execute(u"SELECT DISTINCT public_key FROM blocks"):
-            pub_key = hexlify(row[0])
+            pub_key = row[0]
             self.pubkeys.add(pub_key)
         self._logger.info("Determined unique public keys (%d) in %f seconds", len(self.pubkeys), time.time() - start_time)
         start_time = time.time()
@@ -69,7 +69,7 @@ class TrustChainDB(Database):
         self.tx_rate = 0.0
 
         # Schedule the construction of creation statistics
-        #ensure_future(self.build_statistics_lc())
+        ensure_future(self.build_statistics_lc())
 
     async def build_statistics_lc(self):
         while True:
@@ -80,14 +80,17 @@ class TrustChainDB(Database):
         """
         Build the statistics.
         """
+        self._logger.info("Building statistics...")
+        start_time = time.time()
         self.block_creation_statistics = self.get_block_creation_daily_statistics()
+        self._logger.info("Statistics built in %f seconds", time.time() - start_time)
 
         # Get the average transaction rate
-        start_time = time.time()
-        self.tx_rate = list(self.execute(u"SELECT COUNT()/(24.0*3600.0) FROM blocks WHERE "
-                                         u"block_timestamp >= CAST((julianday('now') - 2440587.5)*86400000-24*3600*1000 AS INTEGER) "
-                                         u"AND block_timestamp <= CAST((julianday('now') - 2440587.5)*86400000 AS INTEGER)"))[0][0]
-        self._logger.info("Determined transaction rate (%f) in %f seconds", self.tx_rate, time.time() - start_time)
+        # start_time = time.time()
+        # self.tx_rate = list(self.execute(u"SELECT COUNT()/(24.0*3600.0) FROM blocks WHERE "
+        #                                  u"block_timestamp >= CAST((julianday('now') - 2440587.5)*86400000-24*3600*1000 AS INTEGER) "
+        #                                  u"AND block_timestamp <= CAST((julianday('now') - 2440587.5)*86400000 AS INTEGER)"))[0][0]
+        # self._logger.info("Determined transaction rate (%f) in %f seconds", self.tx_rate, time.time() - start_time)
 
     def get_block_class(self, block_type):
         """
@@ -110,7 +113,7 @@ class TrustChainDB(Database):
             db_data)
         self.commit()
         self.num_blocks += 1
-        self.pubkeys.add(hexlify(block.public_key))
+        self.pubkeys.add(block.public_key)
         self.total_db_size += 260 + len(db_data[0]) + len(db_data[1])
 
         if self.my_blocks_cache and (block.public_key == self.my_pk or block.link_public_key == self.my_pk):
@@ -333,6 +336,15 @@ class TrustChainDB(Database):
                                                   start_seq_num, end_seq_num, database_blob(public_key), limit),
                                           fetch_all=True))
             return [self.get_block_class(db_item[0])(db_item) for db_item in db_result]
+
+    def get_statistics(self):
+        """
+        Return generic statistics of the TrustChain database.
+        """
+        return {
+            'num_blocks': self.num_blocks,
+            'num_peers': len(self.pubkeys)
+        }
 
     def get_recent_blocks(self, limit=10, offset=0):
         """
