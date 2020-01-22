@@ -71,6 +71,14 @@ class TrustChainDB(Database):
         # Schedule the construction of creation statistics
         ensure_future(self.build_statistics_lc())
 
+        # Schedule periodic commits
+        ensure_future(self.periodic_commit_lc())
+
+    async def periodic_commit_lc(self):
+        while True:
+            self.commit()
+            await sleep(5)
+
     async def build_statistics_lc(self):
         while True:
             self.build_statistics()
@@ -111,7 +119,6 @@ class TrustChainDB(Database):
             u"INSERT INTO blocks (type, tx, public_key, sequence_number, link_public_key,"
             u"link_sequence_number, previous_hash, signature, block_timestamp, block_hash) VALUES(?,?,?,?,?,?,?,?,?,?)",
             db_data)
-        self.commit()
         self.num_blocks += 1
         self.pubkeys.add(block.public_key)
         self.total_db_size += 260 + len(db_data[0]) + len(db_data[1])
@@ -132,7 +139,6 @@ class TrustChainDB(Database):
             u"link_public_key = ? AND link_sequence_number = ? AND previous_hash = ? AND signature = ? "
             u"AND block_timestamp = ? AND block_hash = ?",
             block.pack_db_insert())
-        self.commit()
 
     def _get(self, query, params):
         db_result = list(self.execute(self.get_sql_header() + query, params, fetch_all=False))
@@ -414,7 +420,6 @@ class TrustChainDB(Database):
               u"link_sequence_number,previous_hash, signature, block_timestamp, block_hash) VALUES(?,?,?,?,?,?,?,?,?,?)"
         self.execute(sql, block1.pack_db_insert())
         self.execute(sql, block2.pack_db_insert())
-        self.commit()
 
     def did_double_spend(self, public_key):
         """
