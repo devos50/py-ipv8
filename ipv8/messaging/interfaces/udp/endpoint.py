@@ -64,8 +64,8 @@ class UDPEndpoint(Endpoint, asyncio.DatagramProtocol):
                 self._transport, _ = await loop.create_datagram_endpoint(lambda: self,
                                                                          local_addr=(self._ip, self._port),
                                                                          reuse_port=False)
-                #sock = self._transport.get_extra_info("socket")
-                #sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, UDP_MAX_SIZE)
+                sock = self._transport.get_extra_info("socket")
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 262144 * 4)
 
                 self._logger.debug("Listening at %d", self._port)
                 break
