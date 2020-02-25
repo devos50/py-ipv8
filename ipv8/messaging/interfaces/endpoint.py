@@ -2,6 +2,7 @@ import abc
 import logging
 import socket
 import struct
+from asyncio import get_event_loop
 
 try:
     # Especially on Android netifaces may fail.
@@ -41,7 +42,7 @@ class Endpoint(metaclass=abc.ABCMeta):
         Ensure that the listener is still loaded when delivering the packet later.
         """
         if self.is_open() and listener in self._listeners:
-            listener.on_packet(packet)
+            get_event_loop().run_in_executor(None, listener.on_packet, packet)
 
     def notify_listeners(self, packet):
         """
