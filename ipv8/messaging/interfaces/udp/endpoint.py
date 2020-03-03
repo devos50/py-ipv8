@@ -30,6 +30,9 @@ class UDPEndpoint(Endpoint, asyncio.DatagramProtocol):
         self.bytes_up = 0
         self.bytes_down = 0
 
+        # Apply outgoing latencies to particular addresses
+        self.latencies = {}
+
     def datagram_received(self, datagram, addr):
         # If the endpoint is still running, accept incoming requests, otherwise drop them
         if self._running:
@@ -42,11 +45,22 @@ class UDPEndpoint(Endpoint, asyncio.DatagramProtocol):
         :param socket_address: Tuple of (IP, port) which indicates the destination of the packet.
         """
         self.assert_open()
-        try:
-            self._transport.sendto(packet, socket_address)
-            self.bytes_up += len(packet)
-        except (TypeError, ValueError, AttributeError) as exc:
-            self._logger.warning("Dropping packet due to message formatting error: %s", exc)
+
+        def actually_send():
+            try:
+                self._transport.sendto(packet, socket_address)
+                self.bytes_up += len(packet)
+            except (TypeError, ValueError, AttributeError) as exc:
+                self._logger.warning("Dropping packet due to message formatting error: %s", exc)
+
+        async def delay(delay_time_in_ms):
+            await asyncio.sleep(delay_time_in_ms / 1000.0)
+            actually_send()
+
+        if socket_address not in self.latencies:
+            actually_send()
+        else:
+            asyncio.ensure_future(delay(self.latencies[socket_address]))
 
     def log_error(self, message, level=logging.WARNING):
         self._logger.log(level, message)
