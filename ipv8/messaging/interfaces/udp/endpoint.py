@@ -41,14 +41,14 @@ class UDPEndpoint(Endpoint, asyncio.DatagramProtocol):
             self.bytes_down += len(datagram)
             self.receive_queue.put_nowait((datagram, addr))
 
-    def send(self, socket_address, packet):
+    def send(self, socket_address, packet, always_succeed=False):
         """
         Send a packet to a given address.
         :param socket_address: Tuple of (IP, port) which indicates the destination of the packet.
         """
         self.assert_open()
 
-        if self.send_fail_rate > 0 and random.random() <= self.send_fail_rate:
+        if not always_succeed and self.send_fail_rate > 0 and random.random() <= self.send_fail_rate:
             return  # Do not send the message
 
         def actually_send():
