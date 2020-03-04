@@ -26,6 +26,8 @@ class UDPEndpoint(Endpoint, asyncio.DatagramProtocol):
         self.loop = asyncio.get_running_loop()
         self.receive_queue = asyncio.Queue()
 
+        self.send_fail_rate = 0
+
     async def evaluate_queue(self):
         while True:
             datagram, addr = await self.receive_queue.get()
@@ -45,6 +47,9 @@ class UDPEndpoint(Endpoint, asyncio.DatagramProtocol):
         :param socket_address: Tuple of (IP, port) which indicates the destination of the packet.
         """
         self.assert_open()
+
+        if self.send_fail_rate > 0 and random.random() <= self.send_fail_rate:
+            return  # Do not send the message
 
         def actually_send():
             try:
