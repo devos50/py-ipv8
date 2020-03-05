@@ -32,7 +32,7 @@ class UDPEndpoint(Endpoint, asyncio.DatagramProtocol):
         while True:
             datagram, addr = await self.receive_queue.get()
             self.notify_listeners((addr, datagram))
-            #await asyncio.sleep(0.002)
+            await asyncio.sleep(0.001)
 
     def datagram_received(self, datagram, addr):
         # If the endpoint is still running, accept incoming requests, otherwise drop them
