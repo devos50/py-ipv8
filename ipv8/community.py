@@ -338,6 +338,7 @@ class Community(EZPackOverlay):
             self.logger.warning("Received unknown message: %d from (%s, %d)", ord(msg_id), *source_address)
 
     def walk_to(self, address):
+        self.logger.info("Walking to: %s:%d" % address)
         packet = self.create_introduction_request(address)
         self.endpoint.send(address, packet)
 
