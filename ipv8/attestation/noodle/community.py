@@ -1116,6 +1116,8 @@ class NoodleCommunity(Community):
     def received_audit_proofs(self, source_address, dist, payload, data):
         cache = self.request_cache.get(u'audit', payload.audit_id)
         if cache:
+            self._logger.info("Adding audit proof request from %s:%d (id: %d) to cache",
+                              source_address[0], source_address[1], payload.audit_id)
             # status is known => This is audit collection initiated by my peer
             audit = json.loads(payload.audit_proof)
             # TODO: if audit not valid/resend with bigger peer set
