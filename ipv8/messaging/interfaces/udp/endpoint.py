@@ -21,11 +21,19 @@ class UDPEndpoint(Endpoint, asyncio.DatagramProtocol):
         self.bytes_up = 0
         self.bytes_down = 0
 
+        self.receive_queue = asyncio.Queue()
+
+    async def evaluate_queue(self):
+        while True:
+            datagram, addr = await self.receive_queue.get()
+            self.notify_listeners((addr, datagram))
+            await asyncio.sleep(0.001)
+
     def datagram_received(self, datagram, addr):
         # If the endpoint is still running, accept incoming requests, otherwise drop them
         if self._running:
             self.bytes_down += len(datagram)
-            self.notify_listeners((addr, datagram))
+            self.receive_queue.put_nowait((datagram, addr))
 
     def send(self, socket_address, packet):
         """
@@ -60,7 +68,7 @@ class UDPEndpoint(Endpoint, asyncio.DatagramProtocol):
                 # It is recommended that this endpoint is opened at port = 0,
                 # such that the OS handles the port assignment
                 self._transport = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                self._transport.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8704000)
+                self._transport.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 870400)
                 self._transport.bind((self._ip, self._port))
                 self._transport.setblocking(False)
                 self._port = self._transport.getsockname()[1]
@@ -76,6 +84,7 @@ class UDPEndpoint(Endpoint, asyncio.DatagramProtocol):
                 continue
 
         self._running = True
+        task = asyncio.ensure_future(self.evaluate_queue())
         return True
 
     def assert_open(self):
