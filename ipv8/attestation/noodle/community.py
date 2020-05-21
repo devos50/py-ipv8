@@ -107,6 +107,8 @@ class NoodleCommunity(Community):
         self.incoming_block_queue_task = ensure_future(self.evaluate_incoming_block_queue())
         self.audit_response_queue = Queue()
         self.audit_response_queue_task = ensure_future(self.evaluate_audit_response_queue())
+        self.audit_request_queue = Queue()
+        self.audit_request_queue_task = ensure_future(self.evaluate_audit_request_queue())
 
         self.mem_db_flush_lc = None
         self.transfer_lc = None
@@ -1032,7 +1034,7 @@ class NoodleCommunity(Community):
                                                      total_expected_audits=len(selected_peers)))
             self.logger.info("Requesting an audit for sequence number %d from %d peers", seq_num, len(selected_peers))
             for peer in selected_peers:
-                self.send_audit_request(peer, crawl_id, peer_status)
+                self.audit_request_queue.put_nowait((peer.address, crawl_id, peer_status))
             # when enough audits received, finalize
             audits = await audit_future
             self.finalize_audits(seq_num, peer_status, audits)
@@ -1099,6 +1101,13 @@ class NoodleCommunity(Community):
             self.respond_with_audit_proof(address, audit_id, proofs, status)
             await sleep(self.settings.audit_response_queue_interval / 1000)
 
+    async def evaluate_audit_request_queue(self):
+        while True:
+            audit_info = await self.audit_request_queue.get()
+            address, crawl_id, peer_status = audit_info
+            self.send_audit_request(address, crawl_id, peer_status)
+            await sleep(self.settings.audit_response_queue_interval / 1000)
+
     @synchronized
     @lazy_wrapper_unsigned_wd(GlobalTimeDistributionPayload, AuditProofResponsePayload)
     def received_audit_proofs_response(self, source_address, dist, payload, data):
@@ -1116,7 +1125,7 @@ class NoodleCommunity(Community):
     def received_audit_proofs(self, source_address, dist, payload, data):
         cache = self.request_cache.get(u'audit', payload.audit_id)
         if cache:
-            self._logger.info("Adding audit proof request from %s:%d (id: %d) to cache",
+            self._logger.info("Adding audit proofs from %s:%d (id: %d) to cache",
                               source_address[0], source_address[1], payload.audit_id)
             # status is known => This is audit collection initiated by my peer
             audit = json.loads(payload.audit_proof)
@@ -1126,18 +1135,18 @@ class NoodleCommunity(Community):
         else:
             self.logger.info("Received audit proof for non-existent cache with id %s", payload.audit_id)
 
-    def send_audit_request(self, peer, crawl_id, peer_status):
+    def send_audit_request(self, address, crawl_id, peer_status):
         """
         Ask target peer for an audit of your chain.
         """
-        self._logger.info("Sending audit request to peer %s:%d", peer.address[0], peer.address[1])
+        self._logger.info("Sending audit request to peer %s:%d", address[0], address[1])
         global_time = self.claim_global_time()
         auth = BinMemberAuthenticationPayload(self.my_peer.public_key.key_to_bin()).to_pack_list()
         payload = AuditRequestPayload(crawl_id, peer_status).to_pack_list()
         dist = GlobalTimeDistributionPayload(global_time).to_pack_list()
 
         packet = self._ez_pack(self._prefix, 12, [auth, dist, payload])
-        self.endpoint.send(peer.address, packet)
+        self.endpoint.send(address, packet)
 
     @synchronized
     @lazy_wrapper(GlobalTimeDistributionPayload, AuditRequestPayload)
@@ -1642,6 +1651,8 @@ class NoodleCommunity(Community):
             self.incoming_block_queue_task.cancel()
         if not self.audit_response_queue_task.done():
             self.audit_response_queue_task.cancel()
+        if not self.audit_request_queue_task.done():
+            self.audit_request_queue_task.cancel()
 
         await super(NoodleCommunity, self).unload()
 
