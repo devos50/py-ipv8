@@ -267,6 +267,31 @@ class TestNoodleCommunityThreeNodes(TestNoodleCommunityBase):
         self.assertEqual(self.nodes[2].overlay.persistence.get_balance(my_id),
                          self.nodes[2].overlay.settings.initial_mint_value + 10)
 
+    async def test_overspend(self):
+        """
+        Test overspending with two different nodes.
+        """
+        my_pk = self.nodes[0].overlay.my_peer.public_key.key_to_bin()
+        my_id = self.nodes[0].overlay.persistence.key_to_id(my_pk)
+        initial_balance = self.nodes[0].overlay.persistence.get_balance(my_id)
+
+        self.nodes[0].overlay.persistence.get_balance = lambda _, verified=True: self.nodes[0].overlay.settings.initial_mint_value + 1
+
+        await self.nodes[0].overlay.transfer(self.nodes[1].overlay.my_peer, initial_balance)
+        self.nodes[0].overlay.transfer(self.nodes[2].overlay.my_peer, initial_balance)
+
+        await sleep(2)
+
+        my_pk = self.nodes[1].overlay.my_peer.public_key.key_to_bin()
+        my_id = self.nodes[1].overlay.persistence.key_to_id(my_pk)
+        self.assertEqual(self.nodes[1].overlay.persistence.get_balance(my_id),
+                         self.nodes[1].overlay.settings.initial_mint_value * 2)
+
+        my_pk = self.nodes[2].overlay.my_peer.public_key.key_to_bin()
+        my_id = self.nodes[2].overlay.persistence.key_to_id(my_pk)
+        self.assertEqual(self.nodes[2].overlay.persistence.get_balance(my_id),
+                         self.nodes[2].overlay.settings.initial_mint_value)
+
 
 class TestNoodleCommunityFiveNodes(TestNoodleCommunityBase):
     __testing__ = True

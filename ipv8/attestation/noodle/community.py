@@ -876,8 +876,12 @@ class NoodleCommunity(Community):
                     (not status and not audit_proofs and not self.persistence.get_peer_proofs(peer_id,
                                                                                               blk.sequence_number) and
                      random.random() > self.settings.risk):
-                status_and_proofs = await self.validate_spend(blk, peer)
-                return await self.process_half_block(blk, peer, *status_and_proofs)
+                if not status and not audit_proofs:
+                    status_and_proofs = await self.validate_spend(blk, peer)
+                    return await self.process_half_block(blk, peer, *status_and_proofs)
+                else:
+                    self.logger.info("Not signing block %s due to negative balance, despite audit proofs", blk)
+                    return
             if 'condition' in blk.transaction:
                 pub_key = unhexlify(blk.transaction['condition'])
                 if self.my_peer.public_key.key_to_bin() != pub_key:
