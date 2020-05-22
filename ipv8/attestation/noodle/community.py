@@ -104,6 +104,9 @@ class NoodleCommunity(Community):
         self.transfer_queue = Queue()
         self.transfer_queue_task = ensure_future(self.evaluate_transfer_queue())
 
+        self.incoming_block_queue = Queue()
+        self.incoming_block_queue_task = ensure_future(self.evaluate_incoming_block_queue())
+
         self.mem_db_flush_lc = None
         self.transfer_lc = None
 
@@ -691,7 +694,15 @@ class NoodleCommunity(Community):
         """
         peer = Peer(payload.public_key, source_address)
         block = self.get_block_class(payload.type).from_payload(payload, self.serializer)
-        await self.process_half_block(block, peer)
+        self.incoming_block_queue.put_nowait((peer, block))
+
+    async def evaluate_incoming_block_queue(self):
+        while True:
+            block_info = await self.incoming_block_queue.get()
+            peer, block = block_info
+
+            await self.process_half_block(block, peer)
+            await sleep(self.settings.block_queue_interval / 1000)
 
     @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockBroadcastPayload)
@@ -1623,6 +1634,9 @@ class NoodleCommunity(Community):
         # Stop queues
         if not self.transfer_queue_task.done():
             self.transfer_queue_task.cancel()
+
+        if not self.incoming_block_queue_task.done():
+            self.incoming_block_queue_task.cancel()
 
         await super(NoodleCommunity, self).unload()
 
