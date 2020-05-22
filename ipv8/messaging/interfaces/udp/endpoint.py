@@ -68,7 +68,7 @@ class UDPEndpoint(Endpoint, asyncio.DatagramProtocol):
                 # It is recommended that this endpoint is opened at port = 0,
                 # such that the OS handles the port assignment
                 self._transport = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                self._transport.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 870400)
+                self._transport.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8704000)
                 self._transport.bind((self._ip, self._port))
                 self._transport.setblocking(False)
                 self._port = self._transport.getsockname()[1]
