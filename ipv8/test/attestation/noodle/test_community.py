@@ -292,6 +292,22 @@ class TestNoodleCommunityThreeNodes(TestNoodleCommunityBase):
         self.assertEqual(self.nodes[2].overlay.persistence.get_balance(my_id),
                          self.nodes[2].overlay.settings.initial_mint_value)
 
+    async def test_double_spend_detect(self):
+        """
+        Test detection of double spending behaviour.
+        """
+        self.nodes[0].overlay.settings.is_hiding = True
+        my_pk = self.nodes[0].overlay.my_peer.public_key.key_to_bin()
+        my_id = self.nodes[0].overlay.persistence.key_to_id(my_pk)
+
+        initial_balance = self.nodes[0].overlay.persistence.get_balance(my_id)
+        self.nodes[0].overlay.transfer(self.nodes[1].overlay.my_peer, initial_balance)
+        self.nodes[0].overlay.transfer(self.nodes[2].overlay.my_peer, initial_balance, double_spend_seq=1)
+
+        await sleep(1)
+
+        self.assertTrue(self.nodes[1].overlay.persistence.get_latest_blocks(my_pk, block_types=[b'alert']))
+
 
 class TestNoodleCommunityFiveNodes(TestNoodleCommunityBase):
     __testing__ = True

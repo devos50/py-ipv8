@@ -151,15 +151,15 @@ class NoodleCommunity(Community):
             if self.persistence.get_balance(my_id) <= 0:
                 self.mint(self.settings.initial_mint_value)
 
-    def transfer(self, dest_peer, spend_value):
+    def transfer(self, dest_peer, spend_value, double_spend_seq=None):
         if self.get_my_balance() < spend_value and not self.settings.is_hiding:
             return fail(InsufficientBalanceException("Insufficient balance."))
 
         future = Future()
-        self.transfer_queue.put_nowait((future, dest_peer, spend_value))
+        self.transfer_queue.put_nowait((future, dest_peer, spend_value, double_spend_seq))
         return future
 
-    async def process_transfer_queue_item(self, future, dest_peer, spend_value):
+    async def process_transfer_queue_item(self, future, dest_peer, spend_value, double_spend_seq):
         self._logger.debug("Making spend to peer %s (value: %f)", dest_peer, spend_value)
         if dest_peer == self.my_peer:
             # We are transferring something to ourselves
@@ -170,7 +170,7 @@ class NoodleCommunity(Community):
             tx = {"value": spend_value, "total_spend": pw_total + spend_value}
 
             block_tup = await self.sign_block(self.my_peer, self.my_peer.public_key.key_to_bin(),
-                                              block_type=b'spend', transaction=tx)
+                                              block_type=b'spend', transaction=tx, double_spend_seq=double_spend_seq)
             block_tup = await self.sign_block(self.my_peer, self.my_peer.public_key.key_to_bin(), block_type=b'claim',
                                               linked=block_tup[0])
             future.set_result(block_tup)
@@ -184,7 +184,7 @@ class NoodleCommunity(Community):
                     tx.update({'nonce': nonce, 'condition': condition})
 
                 result = await self.sign_block(next_hop_peer, next_hop_peer.public_key.key_to_bin(),
-                                               block_type=b'spend', transaction=tx)
+                                               block_type=b'spend', transaction=tx, double_spend_seq=double_spend_seq)
                 future.set_result(result)
             except Exception as exc:
                 future.set_exception(exc)
@@ -192,8 +192,8 @@ class NoodleCommunity(Community):
     async def evaluate_transfer_queue(self):
         while True:
             block_info = await self.transfer_queue.get()
-            future, dest_peer, spend_value = block_info
-            _ = ensure_future(self.process_transfer_queue_item(future, dest_peer, spend_value))
+            future, dest_peer, spend_value, double_spend_seq = block_info
+            _ = ensure_future(self.process_transfer_queue_item(future, dest_peer, spend_value, double_spend_seq))
             await sleep(self.settings.transfer_queue_interval / 1000)
 
     def start_making_random_transfers(self):
@@ -597,7 +597,7 @@ class NoodleCommunity(Community):
 
     @synchronized
     def sign_block(self, peer, public_key=EMPTY_PK, block_type=b'unknown', transaction=None, linked=None,
-                   additional_info=None, double_spend_block=None, from_peer=None, from_peer_seq_num=None):
+                   additional_info=None, double_spend_seq=None, from_peer=None, from_peer_seq_num=None):
         """
         Create, sign, persist and send a block signed message
         :param peer: The peer with whom you have interacted, as a IPv8 peer
@@ -606,7 +606,7 @@ class NoodleCommunity(Community):
         :param transaction: A string describing the interaction in this block
         :param linked: The block that the requester is asking us to sign
         :param additional_info: Stores additional information, on the transaction
-        :param double_spend_block: Number of block if you want to double sign
+        :param double_spend_seq: Sequence number of the block you want to double spend with
         :param from_peer:  Optional parameter for conditional chain payments
         :param from_peer_seq_num: Optional parameter for conditional chain payments
         """
@@ -638,7 +638,7 @@ class NoodleCommunity(Community):
                                                         self.my_peer.public_key.key_to_bin(),
                                                         link=linked, additional_info=additional_info,
                                                         link_pk=public_key,
-                                                        double_spend_seq=double_spend_block)
+                                                        double_spend_seq=double_spend_seq)
         block.sign(self.my_peer.key)
 
         # validation = block.validate(self.persistence)
