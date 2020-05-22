@@ -977,7 +977,7 @@ class NoodleCommunity(Community):
                 del self.proof_requests[seq]
 
         for p, audit_id, proofs, status in responses_to_send:
-            self.respond_with_audit_proof(p, audit_id, proofs, status)
+            ensure_future(self.respond_with_audit_proof(p, audit_id, proofs, status))
 
     async def trustchain_active_sync(self, community_mid):
         # choose the peers
@@ -1057,7 +1057,7 @@ class NoodleCommunity(Community):
         if pack:
             seq_num, status, proofs = pack
             # There is an audit request peer can answer
-            self.respond_with_audit_proof(source_address, payload.crawl_id, proofs, status)
+            ensure_future(self.respond_with_audit_proof(source_address, payload.crawl_id, proofs, status))
         else:
             # There are no proofs that we can provide to this peer.
             # Remember the request and answer later, when we received enough proofs.
@@ -1067,7 +1067,7 @@ class NoodleCommunity(Community):
                 self.proof_requests[payload.seq_num] = []
             self.proof_requests[payload.seq_num].append((source_address, payload.crawl_id))
 
-    def respond_with_audit_proof(self, address, audit_id, proofs, status):
+    async def respond_with_audit_proof(self, address, audit_id, proofs, status):
         """
         Send audit proofs and status back to a specific peer, based on a request.
         """
@@ -1078,6 +1078,7 @@ class NoodleCommunity(Community):
             dist = GlobalTimeDistributionPayload(global_time).to_pack_list()
 
             packet = self._ez_pack(self._prefix, 14, [dist, payload], False)
+            await sleep(random.random() * 0.1)
             self.endpoint.send(address, packet)
 
     @synchronized
