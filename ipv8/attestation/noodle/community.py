@@ -1083,6 +1083,7 @@ class NoodleCommunity(Community):
     @synchronized
     @lazy_wrapper_unsigned_wd(GlobalTimeDistributionPayload, AuditProofResponsePayload)
     def received_audit_proofs_response(self, source_address, dist, payload, data):
+        self.logger.info("Received audit proof response (id: %s, proofs? %s)", payload.audit_id, payload.is_proof)
         cache = self.request_cache.get(u'proof-request', payload.audit_id)
         if cache:
             if payload.is_proof:
