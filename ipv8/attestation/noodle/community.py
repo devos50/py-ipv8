@@ -699,6 +699,7 @@ class NoodleCommunity(Community):
     async def evaluate_incoming_block_queue(self):
         while True:
             block_info = await self.incoming_block_queue.get()
+            self.logger.info("Size of incoming block queue: %d",self.incoming_block_queue.qsize())
             peer, block = block_info
 
             await self.process_half_block(block, peer)
