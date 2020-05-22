@@ -694,6 +694,7 @@ class NoodleCommunity(Community):
         """
         peer = Peer(payload.public_key, source_address)
         block = self.get_block_class(payload.type).from_payload(payload, self.serializer)
+        self.logger.info("Received block and put in queue: %s", block)
         self.incoming_block_queue.put_nowait((peer, block))
 
     async def evaluate_incoming_block_queue(self):
