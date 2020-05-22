@@ -703,7 +703,6 @@ class NoodleCommunity(Community):
             peer, block = block_info
 
             await self.process_half_block(block, peer)
-            await sleep(self.settings.block_queue_interval / 1000)
 
     @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockBroadcastPayload)
