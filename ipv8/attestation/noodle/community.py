@@ -797,14 +797,15 @@ class NoodleCommunity(Community):
             listener.received_block(block)
 
     @synchronized
-    async def process_half_block(self, blk, peer, status=None, audit_proofs=None):
+    async def process_half_block(self, blk, peer, validate=True, status=None, audit_proofs=None):
         """
         Process a received half block.
         """
-        validation = self.validate_persist_block(blk, peer)
-        self.logger.info("Block validation result %s, %s, (%s)", validation[0], validation[1], blk)
-        if not self.settings.ignore_validation and validation[0] == ValidationResult.invalid:
-            raise RuntimeError(f"Block could not be validated: {validation[0]}, {validation[1]}")
+        if validate:
+            validation = self.validate_persist_block(blk, peer)
+            self.logger.info("Block validation result %s, %s, (%s)", validation[0], validation[1], blk)
+            if not self.settings.ignore_validation and validation[0] == ValidationResult.invalid:
+                raise RuntimeError(f"Block could not be validated: {validation[0]}, {validation[1]}")
         if status and audit_proofs:
             # validate status and audit proofs for the block
             if not self.validate_audit_proofs(status, audit_proofs, blk):
@@ -865,8 +866,8 @@ class NoodleCommunity(Community):
                                                                                               blk.sequence_number) and
                      random.random() > self.settings.risk):
                 if not status and not audit_proofs:
-                    status_and_proofs = await self.validate_spend(blk, peer)
-                    return await self.process_half_block(blk, peer, *status_and_proofs)
+                    status, proofs = await self.validate_spend(blk, peer)
+                    return await self.process_half_block(blk, peer, validate=False, status=status, audit_proofs=proofs)
                 else:
                     self.logger.info("Not signing block %s due to negative balance, despite audit proofs", blk)
                     return

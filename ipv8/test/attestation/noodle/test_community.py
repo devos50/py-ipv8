@@ -216,11 +216,6 @@ class TestNoodleCommunityThreeNodes(TestNoodleCommunityBase):
         self.assertEqual(self.nodes[1].overlay.persistence.get_balance(my_id),
                          self.nodes[1].overlay.settings.initial_mint_value)
 
-        my_pk = self.nodes[2].overlay.my_peer.public_key.key_to_bin()
-        my_id = self.nodes[2].overlay.persistence.key_to_id(my_pk)
-        self.assertEqual(self.nodes[2].overlay.persistence.get_balance(my_id),
-                         self.nodes[2].overlay.settings.initial_mint_value + 10)
-
     async def test_transfer_chain_overspend(self):
         """
         Test transferring funds from minter to A and then from A to B. The final transfer will be an overspend.
