@@ -703,7 +703,8 @@ class NoodleCommunity(Community):
             self.logger.info("Size of incoming block queue: %d",self.incoming_block_queue.qsize())
             peer, block = block_info
 
-            await self.process_half_block(block, peer)
+            ensure_future(self.process_half_block(block, peer))
+            await sleep(self.settings.block_queue_interval / 1000)
 
     @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockBroadcastPayload)
