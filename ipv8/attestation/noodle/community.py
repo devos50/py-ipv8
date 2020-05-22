@@ -187,6 +187,7 @@ class NoodleCommunity(Community):
                                                block_type=b'spend', transaction=tx, double_spend_seq=double_spend_seq)
                 future.set_result(result)
             except Exception as exc:
+                self.logger.error("Exception occurred when processing transfer item: %s", exc)
                 future.set_exception(exc)
 
     async def evaluate_transfer_queue(self):
