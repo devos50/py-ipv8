@@ -709,7 +709,8 @@ class NoodleCommunity(Community):
             ensure_future(self.process_half_block(block, peer))
             if block.hash in self.blocks_in_queue:
                 self.blocks_in_queue.remove(block.hash)
-            await sleep(0.0005)
+            #await sleep(0.0005)
+            await sleep(0.0001)
 
     @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockBroadcastPayload)
