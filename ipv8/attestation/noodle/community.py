@@ -710,7 +710,7 @@ class NoodleCommunity(Community):
             if block.hash in self.blocks_in_queue:
                 self.blocks_in_queue.remove(block.hash)
             #await sleep(0.0005)
-            await sleep(0.0001)
+            await sleep(0.001)
 
     @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockBroadcastPayload)
