@@ -113,6 +113,7 @@ class NoodleCommunity(Community):
         self.pex = {}
         self.bootstrap_master = None
         self.proof_requests = {}
+        self.blocks_in_queue = set()
 
         self.decode_map.update({
             chr(1): self.received_half_block,
@@ -694,8 +695,10 @@ class NoodleCommunity(Community):
         """
         peer = Peer(payload.public_key, source_address)
         block = self.get_block_class(payload.type).from_payload(payload, self.serializer)
-        self.logger.info("Received block and put in queue: %s", block)
-        self.incoming_block_queue.put_nowait((peer, block))
+        if block.hash not in self.blocks_in_queue:
+            self.logger.info("Received block and put in queue: %s", block)
+            self.blocks_in_queue.add(block.hash)
+            self.incoming_block_queue.put_nowait((peer, block))
 
     async def evaluate_incoming_block_queue(self):
         while True:
@@ -704,6 +707,8 @@ class NoodleCommunity(Community):
             peer, block = block_info
 
             ensure_future(self.process_half_block(block, peer))
+            if block.hash in self.blocks_in_queue:
+                self.blocks_in_queue.remove(block.hash)
             await sleep(0.0005)
 
     @synchronized
