@@ -421,7 +421,7 @@ class NoodleMemoryDatabase(object):
         return blocks
 
     def commit_block_times(self):
-        self.write_work_graph()
+        #self.write_work_graph()
 
         if self.block_file:
             with open(self.block_file, "a") as t_file:
@@ -453,7 +453,7 @@ class NoodleMemoryDatabase(object):
             nx.write_gpickle(self.work_graph, self.graph_path)
 
     def close(self):
-        self.write_work_graph()
+        #self.write_work_graph()
 
         if self.original_db:
             self.original_db.close()
