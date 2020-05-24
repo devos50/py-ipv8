@@ -481,7 +481,7 @@ class NoodleBlock(object):
         :return: A newly created block
         """
         if double_spend_seq:
-            blk = database.get(public_key, double_spend_seq)
+            blk = database.get(public_key, double_spend_seq - 1)
         else:
             blk = database.get_latest(public_key)
         ret = cls()

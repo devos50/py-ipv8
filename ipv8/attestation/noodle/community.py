@@ -155,15 +155,15 @@ class NoodleCommunity(Community):
             if self.persistence.get_balance(my_id) <= 0:
                 self.mint(self.settings.initial_mint_value)
 
-    def transfer(self, dest_peer, spend_value, double_spend_seq=None):
+    def transfer(self, dest_peer, spend_value, double_spend_peer=None):
         if self.get_my_balance() < spend_value and not self.settings.is_hiding:
             return fail(InsufficientBalanceException("Insufficient balance."))
 
         future = Future()
-        self.transfer_queue.put_nowait((future, dest_peer, spend_value, double_spend_seq))
+        self.transfer_queue.put_nowait((future, dest_peer, spend_value, double_spend_peer))
         return future
 
-    async def process_transfer_queue_item(self, future, dest_peer, spend_value, double_spend_seq):
+    async def process_transfer_queue_item(self, future, dest_peer, spend_value, double_spend_peer):
         self._logger.debug("Making spend to peer %s (value: %f)", dest_peer, spend_value)
         if dest_peer == self.my_peer:
             # We are transferring something to ourselves
@@ -187,8 +187,17 @@ class NoodleCommunity(Community):
                     condition = hexlify(dest_peer.public_key.key_to_bin()).decode()
                     tx.update({'nonce': nonce, 'condition': condition})
 
-                result = await self.sign_block(next_hop_peer, next_hop_peer.public_key.key_to_bin(),
-                                               block_type=b'spend', transaction=tx, double_spend_seq=double_spend_seq)
+                block_future = ensure_future(self.sign_block(next_hop_peer, next_hop_peer.public_key.key_to_bin(), block_type=b'spend', transaction=tx))
+
+                if double_spend_peer:
+                    # Also make a double spend with another peer
+                    my_pk = self.my_peer.public_key.key_to_bin()
+                    blk = self.persistence.get_latest(my_pk)
+                    self.logger.info("Making double spend with peer %s!", double_spend_peer)
+
+                    ensure_future(self.sign_block(double_spend_peer, double_spend_peer.public_key.key_to_bin(), block_type=b'spend', transaction=tx, double_spend_seq=blk.sequence_number))
+
+                result = await block_future
                 future.set_result(result)
             except Exception as exc:
                 self.logger.error("Exception occurred when processing transfer item: %s", exc)

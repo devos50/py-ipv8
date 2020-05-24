@@ -287,22 +287,6 @@ class TestNoodleCommunityThreeNodes(TestNoodleCommunityBase):
         self.assertEqual(self.nodes[2].overlay.persistence.get_balance(my_id),
                          self.nodes[2].overlay.settings.initial_mint_value)
 
-    async def test_double_spend_detect(self):
-        """
-        Test detection of double spending behaviour.
-        """
-        self.nodes[0].overlay.settings.is_hiding = True
-        my_pk = self.nodes[0].overlay.my_peer.public_key.key_to_bin()
-        my_id = self.nodes[0].overlay.persistence.key_to_id(my_pk)
-
-        initial_balance = self.nodes[0].overlay.persistence.get_balance(my_id)
-        self.nodes[0].overlay.transfer(self.nodes[1].overlay.my_peer, initial_balance)
-        self.nodes[0].overlay.transfer(self.nodes[2].overlay.my_peer, initial_balance, double_spend_seq=1)
-
-        await sleep(1)
-
-        self.assertTrue(self.nodes[1].overlay.persistence.get_latest_blocks(my_pk, block_types=[b'alert']))
-
 
 class TestNoodleCommunityFiveNodes(TestNoodleCommunityBase):
     __testing__ = True
@@ -350,19 +334,27 @@ class TestNoodleCommunityFiveNodes(TestNoodleCommunityBase):
         self.assertEqual(self.nodes[4].overlay.persistence.get_balance(my_id),
                          self.nodes[4].overlay.settings.initial_mint_value + 10)
 
-    # @inlineCallbacks
-    # def test_double_spend_hiding(self):
-    #     """
-    #     Test transfer with hiding
-    #     """
-    #     self.nodes[1].overlay.settings.is_hiding = True
-    #     yield self.introduce_nodes()
-    #     yield self.nodes[0].overlay.transfer(self.nodes[1].overlay.my_peer, 10)
-    #     yield self.nodes[1].overlay.transfer(self.nodes[2].overlay.my_peer, 6)
-    #     yield self.nodes[1].overlay.transfer(self.nodes[0].overlay.my_peer, 6)
-    #
-    #     pk_2 = self.nodes[1].overlay.my_peer.public_key.key_to_bin()
-    #     id_2 = self.nodes[0].overlay.persistence.key_to_id(pk_2)
-    #
-    #     yield self.sleep(1.0)
-    #     self.assertLess(self.nodes[2].overlay.persistence.get_balance(id_2), 0)
+    async def test_double_spend_detect(self):
+        """
+        Test detection of double spending behaviour.
+        """
+        for node in self.nodes:
+            node.overlay.settings.com_size = 3
+
+        self.nodes[0].overlay.settings.is_hiding = True
+        my_pk = self.nodes[0].overlay.my_peer.public_key.key_to_bin()
+        my_id = self.nodes[0].overlay.persistence.key_to_id(my_pk)
+
+        initial_balance = self.nodes[0].overlay.persistence.get_balance(my_id)
+        double_spend_peer = self.nodes[2].overlay.my_peer
+        self.nodes[0].overlay.transfer(self.nodes[1].overlay.my_peer, initial_balance,
+                                       double_spend_peer=double_spend_peer)
+
+        await sleep(2)
+
+        has_alert = False
+        for block in self.nodes[1].overlay.persistence.get_all_blocks():
+            if block.type == b'alert':
+                has_alert = True
+                break
+        self.assertTrue(has_alert)

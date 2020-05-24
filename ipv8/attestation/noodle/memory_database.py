@@ -354,8 +354,8 @@ class NoodleMemoryDatabase(object):
         if not latest_block:
             return []  # We have no latest blocks
 
-        blocks = [latest_block]
-        cur_seq = latest_block.sequence_number - 1
+        blocks = []
+        cur_seq = latest_block.sequence_number
         while cur_seq > 0:
             cur_block = self.get(public_key, cur_seq)
             if cur_block and (not block_types or cur_block.type in block_types):
