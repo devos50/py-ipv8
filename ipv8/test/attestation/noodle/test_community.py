@@ -359,6 +359,11 @@ class TestNoodleCommunityFiveNodes(TestNoodleCommunityBase):
 
         self.assertLess(claim_blocks, 2)
 
+
+class TestNoodleCommunityEightNodes(TestNoodleCommunityBase):
+    __testing__ = True
+    NUM_NODES = 8
+
     async def test_double_spend_detect_same_peer_status(self):
         """
         Test detection of double spending behaviour where the double-spending peer sends the same peer status to
@@ -369,15 +374,16 @@ class TestNoodleCommunityFiveNodes(TestNoodleCommunityBase):
 
         # Lower the number of required audits to increase the probability of this double spend going undetected
         for node in self.nodes:
-            node.overlay.settings.com_size = 1
+            node.overlay.settings.com_size = 5
 
         self.nodes[0].overlay.settings.is_hiding = True
         my_pk = self.nodes[0].overlay.my_peer.public_key.key_to_bin()
 
         double_spend_peer = self.nodes[2].overlay.my_peer
-        self.nodes[0].overlay.transfer(self.nodes[1].overlay.my_peer, 1, double_spend_peer=double_spend_peer)
+        self.nodes[0].overlay.transfer(self.nodes[1].overlay.my_peer, 1, double_spend_peer=double_spend_peer, double_spend_value=2)
 
         await sleep(2)
+        self.assertTrue(self.nodes[0].overlay.hiding_blocks)
         claim_blocks = 0
 
         for node_nr in [1, 2]:
@@ -386,3 +392,4 @@ class TestNoodleCommunityFiveNodes(TestNoodleCommunityBase):
                     claim_blocks += 1
 
         self.assertLess(claim_blocks, 2)
+        assert False

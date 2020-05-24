@@ -103,6 +103,7 @@ class NoodleCommunity(Community):
         self.periodic_sync_lc = {}
         self.transfer_queue = Queue()
         self.transfer_queue_task = ensure_future(self.evaluate_transfer_queue())
+        self.hiding_blocks = {}
 
         self.incoming_block_queue = Queue()
         self.incoming_block_queue_task = ensure_future(self.evaluate_incoming_block_queue())
@@ -113,6 +114,7 @@ class NoodleCommunity(Community):
         self.pex = {}
         self.bootstrap_master = None
         self.proof_requests = {}
+        self.shadow_proof_requests = {}
         self.blocks_in_queue = set()
 
         self.decode_map.update({
@@ -155,15 +157,15 @@ class NoodleCommunity(Community):
             if self.persistence.get_balance(my_id) <= 0:
                 self.mint(self.settings.initial_mint_value)
 
-    def transfer(self, dest_peer, spend_value, double_spend_peer=None):
+    def transfer(self, dest_peer, spend_value, double_spend_peer=None, double_spend_value=None):
         if self.get_my_balance() < spend_value and not self.settings.is_hiding:
             return fail(InsufficientBalanceException("Insufficient balance."))
 
         future = Future()
-        self.transfer_queue.put_nowait((future, dest_peer, spend_value, double_spend_peer))
+        self.transfer_queue.put_nowait((future, dest_peer, spend_value, double_spend_peer, double_spend_value))
         return future
 
-    async def process_transfer_queue_item(self, future, dest_peer, spend_value, double_spend_peer):
+    async def process_transfer_queue_item(self, future, dest_peer, spend_value, double_spend_peer, double_spend_value):
         self._logger.debug("Making spend to peer %s (value: %f)", dest_peer, spend_value)
         if dest_peer == self.my_peer:
             # We are transferring something to ourselves
@@ -192,6 +194,10 @@ class NoodleCommunity(Community):
                 if double_spend_peer:
                     # Also make a double spend with another peer
                     my_pk = self.my_peer.public_key.key_to_bin()
+                    my_id = self.persistence.key_to_id(my_pk)
+                    peer_id = self.persistence.key_to_id(double_spend_peer.public_key.key_to_bin())
+                    pw_total = self.persistence.get_total_pairwise_spends(my_id, peer_id)
+                    tx = {"value": double_spend_value, "total_spend": pw_total + spend_value}
                     blk = self.persistence.get_latest(my_pk)
                     self.logger.info("Making double spend with peer %s!", double_spend_peer)
 
@@ -206,8 +212,8 @@ class NoodleCommunity(Community):
     async def evaluate_transfer_queue(self):
         while True:
             block_info = await self.transfer_queue.get()
-            future, dest_peer, spend_value, double_spend_seq = block_info
-            _ = ensure_future(self.process_transfer_queue_item(future, dest_peer, spend_value, double_spend_seq))
+            future, dest_peer, spend_value, double_spend_seq, double_spend_value = block_info
+            _ = ensure_future(self.process_transfer_queue_item(future, dest_peer, spend_value, double_spend_seq, double_spend_value))
             await sleep(self.settings.transfer_queue_interval / 1000)
 
     def start_making_random_transfers(self):
@@ -665,6 +671,9 @@ class NoodleCommunity(Community):
         if not self.persistence.contains(block):
             self.persistence.add_block(block)
             self.notify_listeners(block)
+        else:
+            existing_block = self.persistence.get(block.public_key, block.sequence_number)
+            self.hiding_blocks[block.sequence_number] = (existing_block, block)
 
         if peer == self.my_peer:
             # We created a self-signed block / initial claim, send to the neighbours
@@ -1019,6 +1028,12 @@ class NoodleCommunity(Community):
                 del self.proof_requests[seq]
 
         for p, audit_id, proofs, status in responses_to_send:
+            # Are we double spending with this peer? If so, don't send this audit!
+            if audit_seq in self.hiding_blocks:
+                probable_peer = self.network.get_verified_by_address(p)
+                if probable_peer.public_key.key_to_bin() == self.hiding_blocks[audit_seq][1].link_public_key:
+                    self.logger.info("NOT sending audit proof with seq %d back to peer %s due to double spend!", audit_seq, probable_peer)
+                    continue
             ensure_future(self.respond_with_audit_proof(p, audit_id, proofs, status))
 
     async def trustchain_active_sync(self, community_mid):
@@ -1051,9 +1066,29 @@ class NoodleCommunity(Community):
             self.logger.info("Skipping audit since we already have proofs for our last block.")
             return
 
-        peer_status = self.form_peer_status_response(peer_key, selected_peers)
+        peer_status = self.form_peer_status_response(peer_key)
+
+        # Are we hiding any block?
+        if self.hiding_blocks:
+            status_seq_num = peer_status['seq_num']
+            if status_seq_num in self.hiding_blocks:
+                # Make a shadow audit request
+                shadow_seed = peer_key + bytes(seq_num) + b'a'
+                shadow_selected_peers = self.choose_community_peers(peer_list, shadow_seed, min(self.settings.com_size, len(peer_list)))
+                shadow_peer_status = self.form_peer_status_response(peer_key, self.hiding_blocks[status_seq_num])
+                shadow_peer_status_json = json.dumps(shadow_peer_status)
+                shadow_crawl_id = self.persistence.id_to_int(self.persistence.key_to_id(peer_key + b'a'))
+                self.logger.info("Requesting a shadow audit for sequence number %d from %d peers", seq_num, len(shadow_selected_peers))
+                audit_future = Future()
+                audit_future.add_done_callback(lambda future, sseq_num=seq_num, status_json=shadow_peer_status_json: self.on_shadow_audit_done(sseq_num, status_json, future.result()))
+                self.request_cache.add(AuditRequestCache(self, shadow_crawl_id, audit_future,
+                                                         total_expected_audits=len(shadow_selected_peers)))
+                for peer in shadow_selected_peers:
+                    self.send_audit_request(peer.address, shadow_crawl_id, seq_num, shadow_peer_status_json)
+
         # Send an audit request for the block + seq num
         # Now we send status + seq_num
+        peer_status_json = json.dumps(peer_status)
         crawl_id = self.persistence.id_to_int(self.persistence.key_to_id(peer_key))
         # Check if there are active audit requests for this peer
         if not self.request_cache.get(u'audit', crawl_id):
@@ -1062,10 +1097,18 @@ class NoodleCommunity(Community):
                                                      total_expected_audits=len(selected_peers)))
             self.logger.info("Requesting an audit for sequence number %d from %d peers", seq_num, len(selected_peers))
             for peer in selected_peers:
-                self.send_audit_request(peer.address, crawl_id, peer_status)
+                self.send_audit_request(peer.address, crawl_id, seq_num, peer_status_json)
             # when enough audits received, finalize
             audits = await audit_future
-            self.finalize_audits(seq_num, peer_status, audits)
+            self.finalize_audits(seq_num, peer_status_json, audits)
+
+    def on_shadow_audit_done(self, seq_num, peer_status_json, audits):
+        self.logger.info("Shadow audit with sequence number %d finalized (audits: %d)", seq_num, len(audits))
+        if seq_num in self.shadow_proof_requests:
+            peer_address, audit_id = self.shadow_proof_requests[seq_num]
+            full_audit = dict(audits)
+            proofs = json.dumps(full_audit)
+            ensure_future(self.respond_with_audit_proof(peer_address, audit_id, proofs, peer_status_json, is_shadow=True))
 
     def choose_community_peers(self, com_peers, current_seed, commitee_size):
         rand = random.Random(current_seed)
@@ -1105,15 +1148,23 @@ class NoodleCommunity(Community):
             # Remember the request and answer later, when we received enough proofs.
             self._logger.info("Adding audit proof request from %s:%d (id: %d) to cache",
                               source_address[0], source_address[1], payload.crawl_id)
+
+            if self.hiding_blocks[payload.seq_num]:
+                probable_peer = self.network.get_verified_by_address(source_address)
+                if probable_peer.public_key.key_to_bin() == self.hiding_blocks[payload.seq_num][1].link_public_key:
+                    if payload.seq_num not in self.shadow_proof_requests:
+                        self.shadow_proof_requests[payload.seq_num] = []
+                    self.shadow_proof_requests[payload.seq_num] = (source_address, payload.crawl_id)
+
             if payload.seq_num not in self.proof_requests:
                 self.proof_requests[payload.seq_num] = []
             self.proof_requests[payload.seq_num].append((source_address, payload.crawl_id))
 
-    async def respond_with_audit_proof(self, address, audit_id, proofs, status):
+    async def respond_with_audit_proof(self, address, audit_id, proofs, status, is_shadow=False):
         """
         Send audit proofs and status back to a specific peer, based on a request.
         """
-        self.logger.info("Responding with audit proof %s to peer %s:%d", audit_id, address[0], address[1])
+        self.logger.info("Responding with audit proof %s to peer %s:%d (shadow? %s)", audit_id, address[0], address[1], is_shadow)
         for item in [proofs, status]:
             global_time = self.claim_global_time()
             payload = AuditProofResponsePayload(audit_id, item, item == proofs).to_pack_list()
@@ -1152,11 +1203,11 @@ class NoodleCommunity(Community):
         else:
             self.logger.info("Received audit proof for non-existent cache with id %s", payload.audit_id)
 
-    def send_audit_request(self, address, crawl_id, peer_status):
+    def send_audit_request(self, address, crawl_id, seq_num, peer_status):
         """
         Ask target peer for an audit of your chain.
         """
-        self._logger.info("Sending audit request to peer %s:%d", address[0], address[1])
+        self._logger.info("Sending audit request for seq num %d to peer %s:%d", seq_num, address[0], address[1])
         global_time = self.claim_global_time()
         auth = BinMemberAuthenticationPayload(self.my_peer.public_key.key_to_bin()).to_pack_list()
         payload = AuditRequestPayload(crawl_id, peer_status).to_pack_list()
@@ -1169,8 +1220,8 @@ class NoodleCommunity(Community):
     @lazy_wrapper(GlobalTimeDistributionPayload, AuditRequestPayload)
     def received_audit_request(self, peer, dist, payload):
         # TODO: Add DOS protection
-        self.logger.info("Received audit request %s from peer %s:%d", payload.audit_id, peer.address[0],
-                         peer.address[1])
+        self.logger.info("Received audit request %s from peer %s:%d --> %s", payload.audit_id, peer.address[0],
+                         peer.address[1], payload.peer_status)
         self.perform_audit(peer.address, payload)
 
     def perform_audit(self, source_address, audit_request):
@@ -1293,24 +1344,18 @@ class NoodleCommunity(Community):
         packet = self._ez_pack(self._prefix, 9, [auth, dist, payload])
         self.endpoint.send(peer.address, packet)
 
-    def form_peer_status_response(self, public_key, exception_peer_list=None):
+    def form_peer_status_response(self, public_key, hiding_blocks=None):
         status = self.persistence.get_peer_status(public_key)
-        if self.settings.is_hiding:
-            # Hide the top spend excluding the peer that asked it
-            except_peers = set()
-            for peer in exception_peer_list:
-                peer_id = self.persistence.key_to_id(peer.public_key.key_to_bin())
-                except_peers.add(peer_id)
-            hiding = False
-            for p in sorted(((v, k) for k, v in status['spends'].items()), reverse=True):
-                if p[1] not in except_peers:
-                    status['spends'].pop(p[1])
-                    hiding = True
-                    break
-            if hiding:
-                self.logger.warning("Hiding info in status")
-            return json.dumps(status)
-        return json.dumps(status)
+        if hiding_blocks:
+            existing_block = hiding_blocks[0]
+            shadow_block = hiding_blocks[1]
+            # Remove the spend described by the existing block
+            existing_block_peer_id = self.persistence.key_to_id(existing_block.link_public_key)
+            shadow_block_peer_id = self.persistence.key_to_id(shadow_block.link_public_key)
+            status['spends'].pop(existing_block_peer_id)
+            # Add the other one
+            status['spends'][shadow_block_peer_id] = [shadow_block.transaction['value'], shadow_block.sequence_number]
+        return status
 
     @synchronized
     @lazy_wrapper(GlobalTimeDistributionPayload, PeerCrawlRequestPayload)
@@ -1322,7 +1367,7 @@ class NoodleCommunity(Community):
         peer_id = self.persistence.int_to_id(payload.crawl_id)
         if peer_id != my_id:
             self.logger.error("Peer requests not my peer status %s", peer_id)
-        s1 = self.form_peer_status_response(my_key, [peer])
+        s1 = self.form_peer_status_response(my_key)
         self.logger.info("Received peer crawl from node %s for range, sending status len %s",
                          hexlify(peer.public_key.key_to_bin())[-8:], len(s1))
         self.send_peer_crawl_response(peer, payload.crawl_id, s1)
