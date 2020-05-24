@@ -174,7 +174,7 @@ class NoodleCommunity(Community):
             tx = {"value": spend_value, "total_spend": pw_total + spend_value}
 
             block_tup = await self.sign_block(self.my_peer, self.my_peer.public_key.key_to_bin(),
-                                              block_type=b'spend', transaction=tx, double_spend_seq=double_spend_seq)
+                                              block_type=b'spend', transaction=tx)
             block_tup = await self.sign_block(self.my_peer, self.my_peer.public_key.key_to_bin(), block_type=b'claim',
                                               linked=block_tup[0])
             future.set_result(block_tup)
@@ -896,7 +896,8 @@ class NoodleCommunity(Community):
                      random.random() > self.settings.risk):
                 if not status and not audit_proofs:
                     status, proofs = await self.validate_spend(blk, peer)
-                    return await self.process_half_block(blk, peer, validate=False, status=status, audit_proofs=proofs)
+                    if status and proofs:
+                        return await self.process_half_block(blk, peer, validate=False, status=status, audit_proofs=proofs)
                 else:
                     self.logger.info("Not signing block %s due to negative balance, despite audit proofs", blk)
                     return
@@ -941,11 +942,17 @@ class NoodleCommunity(Community):
                 future = self.send_peer_crawl_request(crawl_id, peer, spend_block.sequence_number, except_pack)
             else:
                 future = self.send_audit_proofs_request(peer, spend_block.sequence_number, crawl_id)
-            return await future
         else:
             future = Future()
             cache.futures.append(future)
-            return await future
+
+        # Wait for the result
+        try:
+            res = await future
+        except RuntimeError:
+            return None, None
+
+        return res
 
     def verify_audit(self, status, audit):
         # This is a claim of a conditional transaction

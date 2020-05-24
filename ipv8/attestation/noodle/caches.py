@@ -265,7 +265,7 @@ class AuditProofRequestCache(NumberCache):
     def on_timeout(self):
         self._logger.info("Timeout for audit proof request with id %d", self.number)
         for future in self.futures:
-            future.errback(RuntimeError("Timeout for audit proof request with id %d" % self.number))
+            future.set_exception(RuntimeError("Timeout for audit proof request with id %d" % self.number))
 
 
 class PingRequestCache(RandomNumberCache):

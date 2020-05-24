@@ -1,4 +1,3 @@
-import asyncio
 from asyncio import ensure_future, sleep
 
 from ...base import TestBase
@@ -334,13 +333,13 @@ class TestNoodleCommunityFiveNodes(TestNoodleCommunityBase):
         self.assertEqual(self.nodes[4].overlay.persistence.get_balance(my_id),
                          self.nodes[4].overlay.settings.initial_mint_value + 10)
 
-    async def test_double_spend_detect(self):
+    async def test_double_spend_detect_same_peer_status_overspend(self):
         """
-        Test detection of double spending behaviour.
+        Test detection of double spending behaviour where the double-spending peer sends the same peer status to
+        both counterparties. Either one of the peers should now observe a negative balance and not make the claim,
+        or the witnesses should refuse to sign the block, resulting in the situation where the double-spending peer
+        is unable to collect sufficient signatures.
         """
-        for node in self.nodes:
-            node.overlay.settings.com_size = 3
-
         self.nodes[0].overlay.settings.is_hiding = True
         my_pk = self.nodes[0].overlay.my_peer.public_key.key_to_bin()
         my_id = self.nodes[0].overlay.persistence.key_to_id(my_pk)
@@ -351,10 +350,11 @@ class TestNoodleCommunityFiveNodes(TestNoodleCommunityBase):
                                        double_spend_peer=double_spend_peer)
 
         await sleep(2)
+        claim_blocks = 0
 
-        has_alert = False
-        for block in self.nodes[1].overlay.persistence.get_all_blocks():
-            if block.type == b'alert':
-                has_alert = True
-                break
-        self.assertTrue(has_alert)
+        for node_nr in [1, 2]:
+            for block in self.nodes[node_nr].overlay.persistence.get_all_blocks():
+                if block.link_sequence_number != 0 and block.link_public_key == my_pk and block.type == b'claim':
+                    claim_blocks += 1
+
+        self.assertLess(claim_blocks, 2)
