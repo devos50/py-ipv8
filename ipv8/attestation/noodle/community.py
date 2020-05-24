@@ -967,7 +967,10 @@ class NoodleCommunity(Community):
         self.self_sign_block(block_type=b'alert', transaction=tx)
 
     def validate_audit_proofs(self, raw_status, raw_audit_proofs, block):
-        self.logger.info("Received audit proofs for block %s", block)
+        """
+        Validate the received peer status and audit proofs with respect to a block.
+        """
+        self.logger.info("Received audit proofs for block %s, validating...", block)
         if self.settings.security_mode == SecurityMode.VANILLA:
             return True
 
@@ -979,9 +982,11 @@ class NoodleCommunity(Community):
                 self.logger.error("Audit did not validate %s %s", v, status)
 
         peer_id = self.persistence.key_to_id(block.public_key)
-        # Put audit status into the local db
+
+        # Verify the peer status according the local state. Note that this state does not include the status update
+        # caused by the received block (yet), but that is checked above.
         result = self.verify_peer_status(peer_id, status)
-        if result == ValidationResult.invalid:
+        if result.state == ValidationResult.invalid:
             # Alert: Peer is provably hiding a transaction
             self.logger.error("Peer is hiding transactions %s", result.errors)
             self.trigger_security_alert(peer_id, result.errors)
@@ -1258,7 +1263,7 @@ class NoodleCommunity(Community):
             self.logger.info("Dump chain for %s, balance before is %s", peer_id, prev_balance)
             status = json.loads(payload.chain)
             result = self.verify_peer_status(peer_id, status)
-            if result == ValidationResult.invalid:
+            if result.state == ValidationResult.invalid:
                 # Alert: Peer is provably hiding a transaction
                 self.logger.error("Peer is hiding transactions  %s", result.errors)
                 self.trigger_security_alert(peer_id, result.errors)
