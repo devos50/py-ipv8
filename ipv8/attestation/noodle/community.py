@@ -1149,7 +1149,7 @@ class NoodleCommunity(Community):
             self._logger.info("Adding audit proof request from %s:%d (id: %d) to cache",
                               source_address[0], source_address[1], payload.crawl_id)
 
-            if self.hiding_blocks[payload.seq_num]:
+            if payload.seq_num in self.hiding_blocks:
                 probable_peer = self.network.get_verified_by_address(source_address)
                 if probable_peer.public_key.key_to_bin() == self.hiding_blocks[payload.seq_num][1].link_public_key:
                     if payload.seq_num not in self.shadow_proof_requests:
