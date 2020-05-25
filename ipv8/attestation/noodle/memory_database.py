@@ -420,6 +420,18 @@ class NoodleMemoryDatabase(object):
 
         return blocks
 
+    def commit_block(self, block):
+        if self.block_file:
+            with open(self.block_file, "a") as t_file:
+                writer = csv.DictWriter(t_file, ['time', 'transaction', 'type', "seq_num", "link", 'from_id', 'to_id'])
+                from_id = hexlify(block.public_key).decode()[-8:]
+                to_id = hexlify(block.link_public_key).decode()[-8:]
+                writer.writerow({"time": int(round(time.time() * 1000)), 'transaction': str(block.transaction),
+                                'type': block.type.decode(),
+                                'seq_num': block.sequence_number, "link": block.link_sequence_number,
+                                'from_id': from_id, 'to_id': to_id
+                })
+
     def commit_block_times(self):
         #self.write_work_graph()
 

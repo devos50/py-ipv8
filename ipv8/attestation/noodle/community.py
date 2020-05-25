@@ -677,6 +677,7 @@ class NoodleCommunity(Community):
         else:
             existing_block = self.persistence.get(block.public_key, block.sequence_number)
             self.hiding_blocks[block.sequence_number] = (existing_block, block)
+            self.persistence.commit_block(block)  # Make sure the double spend is written away
 
         if peer == self.my_peer:
             # We created a self-signed block / initial claim, send to the neighbours
