@@ -104,6 +104,7 @@ class NoodleCommunity(Community):
         self.transfer_queue = Queue()
         self.transfer_queue_task = ensure_future(self.evaluate_transfer_queue())
         self.hiding_blocks = {}
+        self.made_alert = set()
 
         self.incoming_block_queue = Queue()
         self.incoming_block_queue_task = ensure_future(self.evaluate_incoming_block_queue())
@@ -1001,8 +1002,10 @@ class NoodleCommunity(Community):
                         break
 
         for affected_peer_id in affected_peers:
-            tx = {'errors': errors, 'malicious_peer': malicious_peer_id, 'affected_peer': affected_peer_id}
-            self.self_sign_block(block_type=b'alert', transaction=tx).add_done_callback(send_block)
+            if (malicious_peer_id, affected_peer_id) not in self.made_alert:
+                self.made_alert.add((malicious_peer_id, affected_peer_id))
+                tx = {'errors': errors, 'malicious_peer': malicious_peer_id, 'affected_peer': affected_peer_id}
+                self.self_sign_block(block_type=b'alert', transaction=tx).add_done_callback(send_block)
 
     def validate_audit_proofs(self, raw_status, raw_audit_proofs, block):
         """
