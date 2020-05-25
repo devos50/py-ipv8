@@ -1073,17 +1073,15 @@ class NoodleCommunity(Community):
             status_seq_num = peer_status['seq_num']
             if status_seq_num in self.hiding_blocks:
                 # Make a shadow audit request
-                shadow_seed = peer_key + bytes(seq_num) + b'a'
-                shadow_selected_peers = self.choose_community_peers(peer_list, shadow_seed, min(self.settings.com_size, len(peer_list)))
                 shadow_peer_status = self.form_peer_status_response(peer_key, self.hiding_blocks[status_seq_num])
                 shadow_peer_status_json = json.dumps(shadow_peer_status)
                 shadow_crawl_id = self.persistence.id_to_int(self.persistence.key_to_id(peer_key + b'a'))
-                self.logger.info("Requesting a shadow audit for sequence number %d from %d peers", seq_num, len(shadow_selected_peers))
+                self.logger.info("Requesting a shadow audit for sequence number %d from %d peers", seq_num, len(selected_peers))
                 audit_future = Future()
                 audit_future.add_done_callback(lambda future, sseq_num=seq_num, status_json=shadow_peer_status_json: self.on_shadow_audit_done(sseq_num, status_json, future.result()))
                 self.request_cache.add(AuditRequestCache(self, shadow_crawl_id, audit_future,
-                                                         total_expected_audits=len(shadow_selected_peers)))
-                for peer in shadow_selected_peers:
+                                                         total_expected_audits=len(selected_peers)))
+                for peer in selected_peers:
                     self.send_audit_request(peer.address, shadow_crawl_id, seq_num, shadow_peer_status_json)
 
         # Send an audit request for the block + seq num
@@ -1207,10 +1205,12 @@ class NoodleCommunity(Community):
         """
         Ask target peer for an audit of your chain.
         """
-        self._logger.info("Sending audit request for seq num %d to peer %s:%d", seq_num, address[0], address[1])
+        peer_id = self.persistence.key_to_id(self.my_peer.public_key.key_to_bin())
+        self._logger.info("Sending audit request for seq num %d to peer %s:%d (my id: %s)",
+                          seq_num, address[0], address[1], peer_id)
         global_time = self.claim_global_time()
         auth = BinMemberAuthenticationPayload(self.my_peer.public_key.key_to_bin()).to_pack_list()
-        payload = AuditRequestPayload(crawl_id, peer_status).to_pack_list()
+        payload = AuditRequestPayload(crawl_id, peer_status, peer_id.encode()).to_pack_list()
         dist = GlobalTimeDistributionPayload(global_time).to_pack_list()
 
         packet = self._ez_pack(self._prefix, 12, [auth, dist, payload])
@@ -1225,7 +1225,7 @@ class NoodleCommunity(Community):
         self.perform_audit(peer.address, payload)
 
     def perform_audit(self, source_address, audit_request):
-        peer_id = self.persistence.int_to_id(audit_request.audit_id)
+        peer_id = audit_request.peer_id.decode()
         # TODO: add verifications
         try:
             peer_status = json.loads(audit_request.peer_status)

@@ -392,4 +392,3 @@ class TestNoodleCommunityEightNodes(TestNoodleCommunityBase):
                     claim_blocks += 1
 
         self.assertLess(claim_blocks, 2)
-        assert False

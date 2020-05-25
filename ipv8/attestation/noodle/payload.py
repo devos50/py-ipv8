@@ -73,22 +73,24 @@ class AuditRequestPayload(Payload):
     Request an audit of some peer status.
     """
 
-    format_list = ['Q', 'varlenI']
+    format_list = ['Q', 'varlenI', 'varlenI']
 
-    def __init__(self, audit_id, peer_status):
+    def __init__(self, audit_id, peer_status, peer_id):
         super(AuditRequestPayload, self).__init__()
         self.audit_id = audit_id
         self.peer_status = peer_status
+        self.peer_id = peer_id
 
     def to_pack_list(self):
         data = [('Q', self.audit_id),
-                ('varlenI', self.peer_status)]
+                ('varlenI', self.peer_status),
+                ('varlenI', self.peer_id)]
 
         return data
 
     @classmethod
-    def from_unpack_list(cls, audit_id, peer_status):
-        return AuditRequestPayload(audit_id, peer_status)
+    def from_unpack_list(cls, audit_id, peer_status, peer_id):
+        return AuditRequestPayload(audit_id, peer_status, peer_id)
 
 
 class AuditProofPayload(Payload):
