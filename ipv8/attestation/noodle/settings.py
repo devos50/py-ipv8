@@ -16,7 +16,7 @@ class NoodleSettings(object):
 
     def __init__(self):
         # The set with block types that should not be broadcast
-        self.block_types_bc_disabled = set()
+        self.block_types_bc_disabled = {b'alert', b'reject_interactions'}
 
         # The fan-out of the broadcast when a new block is created
         self.broadcast_fanout = 25

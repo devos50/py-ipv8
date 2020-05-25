@@ -371,10 +371,11 @@ class TestNoodleCommunityEightNodes(TestNoodleCommunityBase):
         and not make the claim, or the witnesses should refuse to sign the block,
         resulting in the situation where the double-spending peer is unable to collect sufficient signatures.
         """
+        await self.introduce_nodes()
 
         # Lower the number of required audits to increase the probability of this double spend going undetected
         for node in self.nodes:
-            node.overlay.settings.com_size = 5
+            node.overlay.settings.com_size = 1
 
         self.nodes[0].overlay.settings.is_hiding = True
         my_pk = self.nodes[0].overlay.my_peer.public_key.key_to_bin()
@@ -386,9 +387,13 @@ class TestNoodleCommunityEightNodes(TestNoodleCommunityBase):
         self.assertTrue(self.nodes[0].overlay.hiding_blocks)
         claim_blocks = 0
 
+        has_reject_block = False
         for node_nr in [1, 2]:
             for block in self.nodes[node_nr].overlay.persistence.get_all_blocks():
                 if block.link_sequence_number != 0 and block.link_public_key == my_pk and block.type == b'claim':
                     claim_blocks += 1
+                if block.type == b'reject_interactions':
+                    has_reject_block = True
 
+        self.assertTrue(has_reject_block)
         self.assertLess(claim_blocks, 2)

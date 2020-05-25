@@ -278,7 +278,6 @@ class NoodleMemoryDatabase(object):
 
     def add_peer_proofs(self, peer_id, seq_num, status, proofs):
         if peer_id not in self.claim_proofs or self.claim_proofs[peer_id][0] < seq_num:
-            self.logger.info("ADding proofs for peer %s, s %s, ss %s", peer_id, seq_num, status)
             self.claim_proofs[peer_id] = (seq_num, status, proofs)
 
     def get_peer_proofs(self, peer_id, seq_num):

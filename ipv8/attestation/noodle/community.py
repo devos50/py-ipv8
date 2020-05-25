@@ -799,7 +799,7 @@ class NoodleCommunity(Community):
         known_seq_num = self.persistence.get_last_pairwise_spend_num(peer_id, p)
         if self.persistence.get_peer_proofs(peer_id, seq_num) \
                 and (balance < total_value or known_seq_num < seq_num):
-            self.trigger_security_alert(peer_id, ["Hiding peer " + str(p)])
+            self.trigger_security_alert(peer_id, [str(p)], ["Hiding peer " + str(p)])
 
     def validate_persist_block(self, block, peer=None):
         """
@@ -841,6 +841,12 @@ class NoodleCommunity(Community):
         """
         Process a received half block.
         """
+        if blk.type == b'alert' and blk.transaction["affected_peer"] == self.persistence.key_to_id(self.my_peer.public_key.key_to_bin()):
+            # This is a security alert to us!
+            self.logger.info("Received security alert addressed to us!")
+            ensure_future(self.self_sign_block(b'reject_interactions', transaction={"peer": blk.transaction["malicious_peer"]}))
+            return
+
         if validate:
             validation = self.validate_persist_block(blk, peer)
             self.logger.info("Block validation result %s, %s, (%s)", validation[0], validation[1], blk)
@@ -972,10 +978,27 @@ class NoodleCommunity(Community):
 
         return default_eccrypto.is_valid_signature(pub_key, status, sign)
 
-    def trigger_security_alert(self, peer_id, errors):
-        tx = {'errors': errors, 'peer': peer_id}
+    def trigger_security_alert(self, malicious_peer_id, affected_peers, errors):
         # TODO attach proof to transaction
-        self.self_sign_block(block_type=b'alert', transaction=tx)
+        self.logger.info("Triggering security alert for malicious peer %s and affected peers %s", malicious_peer_id, affected_peers)
+
+        def send_block(future):
+            alert_block, _ = future.result()
+            my_peer_id = self.persistence.key_to_id(self.my_peer.public_key.key_to_bin())
+            if alert_block.transaction['affected_peer'] == my_peer_id:
+                self.logger.info("I am the affected peer - processing alert block")
+                ensure_future(self.process_half_block(alert_block, self.my_peer))
+            else:
+                for peer in self.network.verified_peers:
+                    peer_id = self.persistence.key_to_id(peer.public_key.key_to_bin())
+                    if peer_id == alert_block.transaction['affected_peer']:
+                        self.logger.info("Sending alert block to peer %s!", peer)
+                        self.send_block(alert_block, address=peer.address)
+                        break
+
+        for affected_peer_id in affected_peers:
+            tx = {'errors': errors, 'malicious_peer': malicious_peer_id, 'affected_peer': affected_peer_id}
+            self.self_sign_block(block_type=b'alert', transaction=tx).add_done_callback(send_block)
 
     def validate_audit_proofs(self, raw_status, raw_audit_proofs, block):
         """
@@ -996,11 +1019,11 @@ class NoodleCommunity(Community):
 
         # Verify the peer status according the local state. Note that this state does not include the status update
         # caused by the received block (yet), but that is checked above.
-        result = self.verify_peer_status(peer_id, status)
+        result, affected_peers = self.verify_peer_status(peer_id, status)
         if result.state == ValidationResult.invalid:
             # Alert: Peer is provably hiding a transaction
             self.logger.error("Peer is hiding transactions %s", result.errors)
-            self.trigger_security_alert(peer_id, result.errors)
+            self.trigger_security_alert(peer_id, affected_peers, result.errors)
             return False
 
         res = self.persistence.dump_peer_status(peer_id, status)
@@ -1232,12 +1255,12 @@ class NoodleCommunity(Community):
         try:
             peer_status = json.loads(audit_request.peer_status)
             # Verify peer status
-            result = self.verify_peer_status(peer_id, peer_status)
+            result, affected_peers = self.verify_peer_status(peer_id, peer_status)
 
             if result.state == ValidationResult.invalid and not self.settings.is_malicious_witness:
                 # Alert: Peer is provably hiding a transaction
                 self.logger.error("Peer is hiding transactions: %s", result.errors)
-                self.trigger_security_alert(peer_id, result.errors)
+                self.trigger_security_alert(peer_id, affected_peers, result.errors)
             else:
                 if self.persistence.dump_peer_status(peer_id, peer_status):
                     # Create an audit proof for the this sequence and send it back
@@ -1293,19 +1316,21 @@ class NoodleCommunity(Community):
 
         # 1. Verify that peer included all known spenders
         all_verified = True
+        affected_peers = []
         for p in self.persistence.get_all_spend_peers(peer_id):
             balance = self.persistence.get_total_pairwise_spends(peer_id, p)
             seq_num = self.persistence.get_last_pairwise_spend_num(peer_id, p)
             if balance > 0 and seq_num <= status['seq_num']:
                 if p not in status['spends'] or status['spends'][p][0] < balance:
                     # Alert, peer is hiding my transaction
-                    result.err("Peer is hiding spend with peer {}".format(p))
+                    affected_peers.append(p)
+                    result.err("Peer %s is hiding spend with peer %s" % (peer_id, p))
             else:
                 all_verified = False
         if result.state != ValidationResult.invalid and not all_verified:
             result.state = ValidationResult.partial
         # TODO: 2. Verify that there are no unknown holes
-        return result
+        return result, affected_peers
 
     @synchronized
     @lazy_wrapper(GlobalTimeDistributionPayload, PeerCrawlResponsePayload)
@@ -1316,11 +1341,11 @@ class NoodleCommunity(Community):
             prev_balance = self.persistence.get_balance(peer_id)
             self.logger.info("Dump chain for %s, balance before is %s", peer_id, prev_balance)
             status = json.loads(payload.chain)
-            result = self.verify_peer_status(peer_id, status)
+            result, affected_peers = self.verify_peer_status(peer_id, status)
             if result.state == ValidationResult.invalid:
                 # Alert: Peer is provably hiding a transaction
                 self.logger.error("Peer is hiding transactions  %s", result.errors)
-                self.trigger_security_alert(peer_id, result.errors)
+                self.trigger_security_alert(peer_id, affected_peers, result.errors)
                 cache.received_empty_response()
             else:
                 res = self.persistence.dump_peer_status(peer_id, status)
