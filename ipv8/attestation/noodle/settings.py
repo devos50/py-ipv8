@@ -69,6 +69,9 @@ class NoodleSettings(object):
         # Minter identities that we accept (if this is an empty set, everyone is an minter)
         self.minters = []
 
+        # Whether this witness is malicious (e.g., signs everything)
+        self.is_malicious_witness = False
+
         # Crawling identities
         self.crawlers = [
             b"4c69624e61434c504b3a60001170dcec5f4774e3ea8d5d6b89c98e5b18f10adb3e02b27137d965f1e4188d872bf6a30b6516b98fdb9839f2920ccf42a30a723ab07de7011bbbb245b20b",

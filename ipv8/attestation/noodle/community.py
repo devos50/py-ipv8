@@ -1233,7 +1233,8 @@ class NoodleCommunity(Community):
             peer_status = json.loads(audit_request.peer_status)
             # Verify peer status
             result = self.verify_peer_status(peer_id, peer_status)
-            if result.state == ValidationResult.invalid:
+
+            if result.state == ValidationResult.invalid and not self.settings.is_malicious_witness:
                 # Alert: Peer is provably hiding a transaction
                 self.logger.error("Peer is hiding transactions: %s", result.errors)
                 self.trigger_security_alert(peer_id, result.errors)
