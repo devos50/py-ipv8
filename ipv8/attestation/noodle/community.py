@@ -846,6 +846,7 @@ class NoodleCommunity(Community):
             # This is a security alert to us!
             self.logger.info("Received security alert addressed to us!")
             if blk.transaction["malicious_peer"] not in self.rejected_peers:
+                self.rejected_peers.add(blk.transaction["malicious_peer"])
                 ensure_future(self.self_sign_block(b'reject_interactions', transaction={"peer": blk.transaction["malicious_peer"]}))
             return
 
