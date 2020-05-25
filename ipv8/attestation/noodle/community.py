@@ -197,9 +197,11 @@ class NoodleCommunity(Community):
                     my_id = self.persistence.key_to_id(my_pk)
                     peer_id = self.persistence.key_to_id(double_spend_peer.public_key.key_to_bin())
                     pw_total = self.persistence.get_total_pairwise_spends(my_id, peer_id)
+                    if not double_spend_value:
+                        double_spend_value = spend_value
                     tx = {"value": double_spend_value, "total_spend": pw_total + spend_value}
                     blk = self.persistence.get_latest(my_pk)
-                    self.logger.info("Making double spend with peer %s!", double_spend_peer)
+                    self.logger.info("Making double spend of %f with peer %s!", double_spend_value, double_spend_peer)
 
                     ensure_future(self.sign_block(double_spend_peer, double_spend_peer.public_key.key_to_bin(), block_type=b'spend', transaction=tx, double_spend_seq=blk.sequence_number))
 
