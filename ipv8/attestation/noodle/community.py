@@ -116,6 +116,7 @@ class NoodleCommunity(Community):
         self.proof_requests = {}
         self.shadow_proof_requests = {}
         self.blocks_in_queue = set()
+        self.rejected_peers = set()
 
         self.decode_map.update({
             chr(1): self.received_half_block,
@@ -844,7 +845,8 @@ class NoodleCommunity(Community):
         if blk.type == b'alert' and blk.transaction["affected_peer"] == self.persistence.key_to_id(self.my_peer.public_key.key_to_bin()):
             # This is a security alert to us!
             self.logger.info("Received security alert addressed to us!")
-            ensure_future(self.self_sign_block(b'reject_interactions', transaction={"peer": blk.transaction["malicious_peer"]}))
+            if blk.transaction["malicious_peer"] not in self.rejected_peers:
+                ensure_future(self.self_sign_block(b'reject_interactions', transaction={"peer": blk.transaction["malicious_peer"]}))
             return
 
         if validate:
