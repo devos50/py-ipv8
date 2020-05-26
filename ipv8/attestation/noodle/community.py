@@ -909,6 +909,10 @@ class NoodleCommunity(Community):
 
         peer_id = self.persistence.key_to_id(blk.public_key)
         if blk.type == b'spend':
+            if peer_id in self.rejected_peers:
+                self.logger.info("Not signing block since we blocked interactions with peer %s!", peer_id)
+                return
+
             # Request proofs from the peer if:
             #  1) If estimated balance less than zero
             #  2) If no proofs attached, no recent local proofs and depending on risk
