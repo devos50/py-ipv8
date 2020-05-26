@@ -921,7 +921,11 @@ class NoodleCommunity(Community):
                                                                                               blk.sequence_number) and
                      random.random() > self.settings.risk):
                 if not status and not audit_proofs:
-                    status, proofs = await self.validate_spend(blk, peer)
+                    try:
+                        status, proofs = await self.validate_spend(blk, peer)
+                    except RuntimeError:
+                        self.logger.info("Didn't receive the audit proofs - ignoring block!")
+                        return
                     if status and proofs:
                         return await self.process_half_block(blk, peer, validate=False, status=status, audit_proofs=proofs)
                 else:
@@ -955,7 +959,7 @@ class NoodleCommunity(Community):
 
             self.sign_block(peer, linked=blk, block_type=b'claim')
 
-    async def validate_spend(self, spend_block, peer):
+    def validate_spend(self, spend_block, peer):
         from_peer = self.persistence.key_to_id(spend_block.public_key)
         crawl_id = self.persistence.id_to_int(from_peer)
         cache = self.request_cache.get(u"proof-request", crawl_id)
@@ -972,13 +976,7 @@ class NoodleCommunity(Community):
             future = Future()
             cache.futures.append(future)
 
-        # Wait for the result
-        try:
-            res = await future
-        except RuntimeError:
-            return None, None
-
-        return res
+        return future
 
     def verify_audit(self, status, audit):
         # This is a claim of a conditional transaction

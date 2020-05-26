@@ -291,6 +291,15 @@ class TestNoodleCommunityFiveNodes(TestNoodleCommunityBase):
     __testing__ = True
     NUM_NODES = 5
 
+    async def test_audit_proofs_request_timeout(self):
+        await self.introduce_nodes()
+
+        self.nodes[0].overlay.decode_map[chr(11)] = lambda *_: None  # Ignore incoming pings
+
+        self.nodes[0].overlay.transfer(self.nodes[1].overlay.my_peer, 12345)
+
+        await sleep(4)
+
     async def test_transfer_twice(self):
         """
         Test transferring some funds to different entities.
