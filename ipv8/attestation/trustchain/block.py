@@ -444,6 +444,11 @@ class TrustChainBlock(object):
                 # Is this fraud? It is certainly an error, but fixing it would require a different signature on the same
                 # sequence number which is fraud.
 
+                with open("detection_time.txt", "w") as out:
+                    out.write("%d" % int(round(time.time() * 1000)))
+
+                database.kill_callback()
+
         if next_blk:
             if next_blk.public_key != self.public_key:
                 result.err("Next block public key mismatch")
