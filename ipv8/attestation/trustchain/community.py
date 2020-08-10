@@ -208,7 +208,7 @@ class TrustChainCommunity(Community):
 
     @synchronized
     def sign_block(self, peer, public_key=EMPTY_PK, block_type=b'unknown', transaction=None, linked=None,
-                   additional_info=None):
+                   additional_info=None, double_spend=False):
         """
         Create, sign, persist and send a block signed message
         :param peer: The peer with whom you have interacted, as a IPv8 peer
@@ -245,7 +245,7 @@ class TrustChainCommunity(Community):
         block = self.get_block_class(block_type).create(block_type, transaction, self.persistence,
                                                         self.my_peer.public_key.key_to_bin(),
                                                         link=linked, additional_info=additional_info,
-                                                        link_pk=public_key)
+                                                        link_pk=public_key, double_spend=double_spend)
         block.sign(self.my_peer.key)
 
         validation = block.validate(self.persistence)

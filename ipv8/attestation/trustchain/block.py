@@ -457,7 +457,7 @@ class TrustChainBlock(object):
         self.hash = self.calculate_hash()
 
     @classmethod
-    def create(cls, block_type, transaction, database, public_key, link=None, additional_info=None, link_pk=None):
+    def create(cls, block_type, transaction, database, public_key, link=None, additional_info=None, link_pk=None, double_spend=False):
         """
         Create an empty next block.
         :param block_type: the type of the block to be constructed
@@ -468,9 +468,17 @@ class TrustChainBlock(object):
         :param additional_info: additional information, which has a higher priority than the
                transaction when link exists
         :param link_pk: the public key of the counterparty in this transaction
+        :param double_spend: whether we double spend.
         :return: A newly created block
         """
         blk = database.get_latest(public_key)
+        if double_spend:
+            # Remove the latest block from the database
+            database.remove_block(blk)
+
+            # Load the new block
+            blk = database.get_latest(blk)
+
         ret = cls()
         if link:
             ret.type = link.type if link.link_public_key != ANY_COUNTERPARTY_PK else block_type
