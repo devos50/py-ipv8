@@ -512,7 +512,7 @@ class TrustChainBlock(object):
             if key in SKIP_ATTRIBUTES:
                 continue
             if key == 'transaction':
-                yield key, json.loads(self._transaction)[1]
+                yield key, json.loads(self._transaction)
             elif isinstance(value, bytes) and key != "insert_time" and key != "type":
                 yield key, hexlify(value).decode('utf-8')
             else:
