@@ -245,7 +245,7 @@ class TrustChainBlock(object):
         self.update_linked_consistency(database, link, result)
 
         # Check if the chain of blocks is properly hooked up.
-        self.update_chain_consistency(prev_blk, next_blk, result)
+        self.update_chain_consistency(prev_blk, next_blk, result, database)
 
         return result.state, result.errors
 
@@ -381,6 +381,11 @@ class TrustChainBlock(object):
                 result.err("Double sign fraud")
                 database.add_double_spend(blk, self)
 
+                with open("detection_time.txt", "w") as out:
+                    out.write("%d" % int(round(time.time() * 1000)))
+
+                database.kill_callback()
+
     def update_linked_consistency(self, database, link, result):
         """
         If the database has a linked block check if the values match up.
@@ -412,7 +417,7 @@ class TrustChainBlock(object):
                         link.link_public_key != ANY_COUNTERPARTY_PK:
                     result.err("Double countersign fraud")
 
-    def update_chain_consistency(self, prev_blk, next_blk, result):
+    def update_chain_consistency(self, prev_blk, next_blk, result, database):
         """
         Check for chain order consistency.
 
@@ -447,6 +452,11 @@ class TrustChainBlock(object):
             if not is_next_gap and next_blk.previous_hash != self.hash:
                 result.err("Next hash is not equal to the hash id of the block")
                 # Again, this might not be fraud, but fixing it can only result in fraud.
+
+                with open("detection_time.txt", "w") as out:
+                    out.write("%d" % int(round(time.time() * 1000)))
+
+                database.kill_callback()
 
     def sign(self, key):
         """

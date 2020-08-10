@@ -34,6 +34,7 @@ class TrustChainDB(Database):
         super(TrustChainDB, self).__init__(db_path)
         self._logger.debug("TrustChain database path: %s", db_path)
         self.db_name = db_name
+        self.kill_callback = None
         self.block_types = {}
         self.my_blocks_cache = None
         if my_pk:
