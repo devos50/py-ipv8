@@ -487,7 +487,7 @@ class TrustChainBlock(object):
             database.remove_block(blk)
 
             # Load the new block
-            blk = database.get_latest(blk)
+            blk = database.get_latest(public_key)
 
         ret = cls()
         if link:
