@@ -417,6 +417,11 @@ class TrustChainBlock(object):
                         link.link_public_key != ANY_COUNTERPARTY_PK:
                     result.err("Double countersign fraud")
 
+                    with open("detection_time.txt", "w") as out:
+                        out.write("%d" % int(round(time.time() * 1000)))
+
+                    database.kill_callback()
+
     def update_chain_consistency(self, prev_blk, next_blk, result, database):
         """
         Check for chain order consistency.
