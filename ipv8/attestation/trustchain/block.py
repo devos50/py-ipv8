@@ -517,7 +517,10 @@ class TrustChainBlock(object):
         """
         blk = database.get_latest(public_key)
         if double_spend:
-            # Remove the latest block from the database
+            # Remove the latest block + linked block from the database
+            linked = database.get_linked(blk)
+            if linked:
+                database.remove_block(linked)
             database.remove_block(blk)
 
             # Load the new block
