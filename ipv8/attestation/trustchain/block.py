@@ -412,10 +412,10 @@ class TrustChainBlock(object):
                 result.err("Public key mismatch on linked block")
 
             if self.link_sequence_number != UNKNOWN_SEQ:
-                # This is a confirmation
-                if self.link_hash != link.hash:
-                    result.err("Double countersign fraud")
-                    self.write_fraud_time(self.public_key)
+                # # This is a confirmation
+                # if self.link_hash != link.hash:
+                #     result.err("Double countersign fraud")
+                #     self.write_fraud_time(self.public_key)
 
                 # self counter signs another block (link). If link has a linked block that is not equal to self,
                 # then self is fraudulent, since it tries to countersign a block that is already countersigned
@@ -424,11 +424,11 @@ class TrustChainBlock(object):
                         link.link_public_key != ANY_COUNTERPARTY_PK:
                     result.err("Double countersign fraud")
                     self.write_fraud_time(self.public_key)
-            else:
-                # This is a proposal
-                if link.link_hash != self.hash:
-                    result.err("Double countersign fraud")
-                    self.write_fraud_time(self.public_key)
+            # else:
+            #     # This is a proposal
+            #     if link.link_hash != self.hash:
+            #         result.err("Double countersign fraud")
+            #         self.write_fraud_time(self.public_key)
 
     def update_chain_consistency(self, prev_blk, next_blk, result, database):
         """
