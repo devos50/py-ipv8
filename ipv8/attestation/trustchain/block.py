@@ -385,11 +385,7 @@ class TrustChainBlock(object):
                "Public key is not valid" not in result.errors:
                 result.err("Double sign fraud")
                 database.add_double_spend(blk, self)
-
-                with open("detection_time.txt", "w") as out:
-                    out.write("%d" % int(round(time.time() * 1000)))
-
-                database.kill_callback()
+                self.write_fraud_time(blk.public_key)
 
     def update_linked_consistency(self, database, link, result):
         """
@@ -419,11 +415,7 @@ class TrustChainBlock(object):
                 # This is a confirmation
                 if self.link_hash != link.hash:
                     result.err("Double countersign fraud")
-
-                    with open("detection_time.txt", "w") as out:
-                        out.write("%d" % int(round(time.time() * 1000)))
-
-                    database.kill_callback()
+                    self.write_fraud_time(self.public_key)
 
                 # self counter signs another block (link). If link has a linked block that is not equal to self,
                 # then self is fraudulent, since it tries to countersign a block that is already countersigned
@@ -431,20 +423,12 @@ class TrustChainBlock(object):
                 if linklinked is not None and linklinked.hash != self.hash and \
                         link.link_public_key != ANY_COUNTERPARTY_PK:
                     result.err("Double countersign fraud")
-
-                    with open("detection_time.txt", "w") as out:
-                        out.write("%d" % int(round(time.time() * 1000)))
-
-                    database.kill_callback()
+                    self.write_fraud_time(self.public_key)
             else:
                 # This is a proposal
                 if link.link_hash != self.hash:
                     result.err("Double countersign fraud")
-
-                    with open("detection_time.txt", "w") as out:
-                        out.write("%d" % int(round(time.time() * 1000)))
-
-                    database.kill_callback()
+                    self.write_fraud_time(self.public_key)
 
     def update_chain_consistency(self, prev_blk, next_blk, result, database):
         """
@@ -472,11 +456,7 @@ class TrustChainBlock(object):
                 result.err("Previous hash is not equal to the hash id of the previous block")
                 # Is this fraud? It is certainly an error, but fixing it would require a different signature on the same
                 # sequence number which is fraud.
-
-                with open("detection_time.txt", "w") as out:
-                    out.write("%d" % int(round(time.time() * 1000)))
-
-                database.kill_callback()
+                self.write_fraud_time(self.public_key)
 
         if next_blk:
             if next_blk.public_key != self.public_key:
@@ -486,11 +466,7 @@ class TrustChainBlock(object):
             if not is_next_gap and next_blk.previous_hash != self.hash:
                 result.err("Next hash is not equal to the hash id of the block")
                 # Again, this might not be fraud, but fixing it can only result in fraud.
-
-                with open("detection_time.txt", "w") as out:
-                    out.write("%d" % int(round(time.time() * 1000)))
-
-                database.kill_callback()
+                self.write_fraud_time(self.public_key)
 
     def sign(self, key):
         """
@@ -573,6 +549,11 @@ class TrustChainBlock(object):
                 yield key, hexlify(value).decode('utf-8')
             else:
                 yield key, value.decode('utf-8') if isinstance(value, bytes) else value
+
+    def write_fraud_time(self, public_key):
+        with open("detection_time.txt", "a") as out:
+            hex_pk = hexlify(public_key).decode()
+            out.write("%s,%d\n" % (hex_pk, int(round(time.time() * 1000))))
 
 
 class ValidationResult(object):
