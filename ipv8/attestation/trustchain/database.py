@@ -59,7 +59,7 @@ class TrustChainDB(Database):
         """
         self.execute(
             u"INSERT INTO blocks (type, tx, public_key, sequence_number, link_public_key,"
-            u"link_sequence_number, previous_hash, signature, block_timestamp, block_hash) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            u"link_sequence_number, link_hash, previous_hash, signature, block_timestamp, block_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             block.pack_db_insert())
         self.commit()
 
@@ -76,7 +76,7 @@ class TrustChainDB(Database):
         """
         self.execute(
             u"DELETE FROM blocks WHERE type = ? AND tx = ? AND public_key = ? AND sequence_number = ? AND "
-            u"link_public_key = ? AND link_sequence_number = ? AND previous_hash = ? AND signature = ? "
+            u"link_public_key = ? AND link_sequence_number = ? AND link_hash = ? AND previous_hash = ? AND signature = ? "
             u"AND block_timestamp = ? AND block_hash = ?",
             block.pack_db_insert())
         self.commit()
@@ -334,7 +334,7 @@ class TrustChainDB(Database):
         Add information about a double spend to the database.
         """
         sql = u"INSERT OR IGNORE INTO double_spends (type, tx, public_key, sequence_number, link_public_key," \
-              u"link_sequence_number,previous_hash, signature, block_timestamp, block_hash) VALUES(?,?,?,?,?,?,?,?,?,?)"
+              u"link_sequence_number, link_hash, previous_hash, signature, block_timestamp, block_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)"
         self.execute(sql, block1.pack_db_insert())
         self.execute(sql, block2.pack_db_insert())
         self.commit()
@@ -351,7 +351,7 @@ class TrustChainDB(Database):
         """
         Return the first part of a generic sql select query.
         """
-        _columns = u"type, tx, public_key, sequence_number, link_public_key, link_sequence_number, " \
+        _columns = u"type, tx, public_key, sequence_number, link_public_key, link_sequence_number, link_hash," \
                    u"previous_hash, signature, block_timestamp, insert_time"
         return u"SELECT " + _columns + u" FROM blocks "
 
@@ -364,6 +364,7 @@ class TrustChainDB(Database):
          sequence_number      INTEGER NOT NULL,
          link_public_key      TEXT NOT NULL,
          link_sequence_number INTEGER NOT NULL,
+         link_hash  	      TEXT NOT NULL,
          previous_hash	      TEXT NOT NULL,
          signature		      TEXT NOT NULL,
          block_timestamp      BIGINT NOT NULL,

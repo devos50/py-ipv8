@@ -442,7 +442,7 @@ class TestTrustChainCommunity(TestBase):
         self.assertIsNotNone(block)
 
         # Create a Link Block
-        link_block, _ = await self.nodes[1].overlay.create_link(block, b'link', additional_info={b'a': 1, b'b': 2})
+        link_block, _ = await self.nodes[1].overlay.create_link(block, b'link', additional_info={'a': 1, 'b': 2})
         self.assertEqual(link_block.type, b'link')
         await self.deliver_messages()
 
@@ -453,8 +453,8 @@ class TestTrustChainCommunity(TestBase):
         self.assertIsNotNone(block_node_0)
         self.assertIsNotNone(block_node_1)
 
-        self.assertEqual(block_node_0.transaction, {b'a': 1, b'b': 2})
-        self.assertEqual(block_node_1.transaction, {b'a': 1, b'b': 2})
+        self.assertEqual(block_node_0.transaction, {'a': 1, 'b': 2})
+        self.assertEqual(block_node_1.transaction, {'a': 1, 'b': 2})
 
     async def test_link_block_multiple(self):
         """
@@ -467,8 +467,8 @@ class TestTrustChainCommunity(TestBase):
 
         block = self.nodes[1].overlay.persistence.get(source_peer_pubkey, 1)
 
-        self.nodes[1].overlay.create_link(block, b'link', additional_info={b'a': 1, b'b': 2})
-        self.nodes[1].overlay.create_link(block, b'link', additional_info={b'a': 2, b'b': 3})
+        self.nodes[1].overlay.create_link(block, b'link', additional_info={'a': 1, 'b': 2})
+        self.nodes[1].overlay.create_link(block, b'link', additional_info={'a': 2, 'b': 3})
         await self.deliver_messages()
 
         self.assertEqual(len(self.nodes[0].overlay.persistence.get_all_linked(source_block)), 2)
