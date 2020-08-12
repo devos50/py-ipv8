@@ -423,7 +423,7 @@ class TrustChainBlock(object):
                 if linklinked is not None and linklinked.hash != self.hash and \
                         link.link_public_key != ANY_COUNTERPARTY_PK:
                     result.err("Double countersign fraud")
-                    self.write_fraud_time(self.public_key)
+                    #self.write_fraud_time(self.public_key)
             # else:
             #     # This is a proposal
             #     if link.link_hash != self.hash:
