@@ -22,6 +22,35 @@ from ...requestcache import RequestCache
 from ...taskmanager import task
 
 
+def tc_lazy_wrapper_unsigned(*payloads):
+    """
+    This function wrapper will unpack just the normal payloads for you, and handle a singular circuit_id parameter at
+    the end of the parameter list
+    You can now write your non-authenticated and signed functions as follows:
+    ::
+        @tc_lazy_wrapper_unsigned(GlobalTimeDistributionPayload, IntroductionRequestPayload,
+                                  IntroductionResponsePayload, circuit_id)
+        def on_message(source_address, payload1, payload2):
+            '''
+            :type source_address: str
+            :type payload1: IntroductionRequestPayload
+            :type payload2: IntroductionResponsePayload
+            '''
+            pass
+    """
+    def decorator(func):
+        def wrapper(self, source_address, data, circuit_id=None):
+
+            @lazy_wrapper_unsigned(*payloads)
+            def inner_wrapper(inner_self, inner_source_address, *pyls):
+                combo = list(pyls) + [circuit_id]
+                return func(inner_self, inner_source_address, *combo)
+
+            return inner_wrapper(self, source_address, data)
+        return wrapper
+    return decorator
+
+
 def unpack_cell(*payloads):
     """
     This function wrapper will unpack just the normal payloads for you, and handle a singular circuit_id parameter at
