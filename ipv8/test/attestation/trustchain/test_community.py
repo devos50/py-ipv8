@@ -360,30 +360,6 @@ class TestTrustChainCommunity(TestBase):
         my_pubkey = self.nodes[0].my_peer.public_key.key_to_bin()
         await self.nodes[1].overlay.send_crawl_request(self.nodes[0].my_peer, my_pubkey, 1, 1)
 
-    async def test_invalid_block(self):
-        """
-        See if we can recover from database corruption.
-        """
-        # Create an invalid block
-        invalid_block = TestBlock(key=self.nodes[0].overlay.my_peer.key)
-        invalid_block.signature = b'a' * 64
-        invalid_block.hash = invalid_block.calculate_hash()
-        self.nodes[0].overlay.persistence.add_block(invalid_block)
-
-        # We will attempt to add a new block to our chain.
-        # We should see that we have database corruption and clean up our chain.
-        # Afterward we continue the signing as usual
-        my_pubkey = self.nodes[0].overlay.my_peer.public_key.key_to_bin()
-        his_pubkey = list(self.nodes[0].network.verified_peers)[0].public_key.key_to_bin()
-        await self.nodes[0].overlay.sign_block(list(self.nodes[0].network.verified_peers)[0], public_key=his_pubkey,
-                                               block_type=b'test', transaction={})
-
-        await self.deliver_messages()
-
-        # Both nodes should have this newly signed block added correctly to their database
-        self.assertIsNotNone(self.nodes[0].overlay.persistence.get(my_pubkey, 1))
-        self.assertIsNotNone(self.nodes[1].overlay.persistence.get(my_pubkey, 1))
-
     async def test_half_block_self_signed(self):
         """
         Test creating and disseminating a half block, signed by yourself

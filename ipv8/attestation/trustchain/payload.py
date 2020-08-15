@@ -52,31 +52,28 @@ class HalfBlockPayload(VariablePayload):
 
 
 @vp_compile
+class InconsistencyPairPayload(VariablePayload):
+    msg_id = 8
+    format_list = [HalfBlockPayload, HalfBlockPayload]
+    names = ['block1', 'block2']
+
+
+@vp_compile
+class InconsistencyTripletPayload(VariablePayload):
+    msg_id = 9
+    format_list = [HalfBlockPayload, HalfBlockPayload, HalfBlockPayload]
+    names = ['block1', 'block2', 'block3']
+
+
+@vp_compile
 class HalfBlockBroadcastPayload(VariablePayload):
     """
     Payload for a message that contains a half block and a TTL field for broadcasts.
     """
 
     msg_id = 5
-    format_list = ['74s', 'I', '74s', 'I', '32s', '32s', '64s', 'varlenI', 'varlenI', 'Q', 'I']
-    names = ['public_key', 'sequence_number', 'link_public_key', 'link_sequence_number', 'link_hash', 'previous_hash',
-             'signature', 'type', 'transaction', 'timestamp', 'ttl']
-
-    @classmethod
-    def from_half_block(cls, block, ttl):
-        return HalfBlockBroadcastPayload(
-            block.public_key,
-            block.sequence_number,
-            block.link_public_key,
-            block.link_sequence_number,
-            block.link_hash,
-            block.previous_hash,
-            block.signature,
-            block.type,
-            block._transaction,
-            block.timestamp,
-            ttl
-        )
+    format_list = [HalfBlockPayload, 'I']
+    names = ['block', 'ttl']
 
 
 @vp_compile
@@ -86,27 +83,8 @@ class CrawlResponsePayload(VariablePayload):
     """
 
     msg_id = 3
-    format_list = ['74s', 'I', '74s', 'I', '32s', '32s', '64s', 'varlenI', 'varlenI', 'Q', 'I', 'I', 'I']
-    names = ['public_key', 'sequence_number', 'link_public_key', 'link_sequence_number', 'link_hash', 'previous_hash',
-             'signature', 'type', 'transaction', 'timestamp', 'crawl_id', 'cur_count', 'total_count']
-
-    @classmethod
-    def from_crawl(cls, block, crawl_id, cur_count, total_count):
-        return CrawlResponsePayload(
-            block.public_key,
-            block.sequence_number,
-            block.link_public_key,
-            block.link_sequence_number,
-            block.link_hash,
-            block.previous_hash,
-            block.signature,
-            block.type,
-            block._transaction,
-            block.timestamp,
-            crawl_id,
-            cur_count,
-            total_count,
-        )
+    format_list = [HalfBlockPayload, 'I', 'I', 'I']
+    names = ['block', 'crawl_id', 'cur_count', 'total_count']
 
 
 class HalfBlockPairPayload(Payload):

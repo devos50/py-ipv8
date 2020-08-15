@@ -637,8 +637,6 @@ class TestTrustChainBlock(TestBase):
 
         self.assertEqual(ValidationResult.valid, result.state)
 
-
-
     def test_iter(self):
         """
         Check that the iterator of a Block has all of the required keys without duplicates.

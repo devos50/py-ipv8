@@ -30,3 +30,6 @@ class TrustChainSettings(object):
 
         # The timeout after which we stop trying to get the half block signed by the counterparty
         self.sign_timeout = 360
+
+        # Whether we share inconsistent results
+        self.share_inconsistencies = False

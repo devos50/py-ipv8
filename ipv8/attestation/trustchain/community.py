@@ -77,6 +77,8 @@ class TrustChainCommunity(Community):
         self.add_message_handler(HalfBlockBroadcastPayload, self.received_half_block_broadcast)
         self.add_message_handler(HalfBlockPairBroadcastPayload, self.received_half_block_pair_broadcast)
         self.add_message_handler(EmptyCrawlResponsePayload, self.received_empty_crawl_response)
+        self.add_message_handler(InconsistencyPairPayload, self.received_two_inconsistent_blocks)
+        self.add_message_handler(InconsistencyTripletPayload, self.received_three_inconsistent_blocks)
 
     def do_db_cleanup(self):
         """
@@ -141,16 +143,16 @@ class TrustChainCommunity(Community):
         """
         global_time = self.claim_global_time()
         dist = GlobalTimeDistributionPayload(global_time).to_pack_list()
+        block_payload = HalfBlockPayload.from_half_block(block)
 
         if address:
             self.logger.debug("Sending block to (%s:%d) (%s)", address[0], address[1], block)
-            payload = HalfBlockPayload.from_half_block(block).to_pack_list()
-            packet = self._ez_pack(self._prefix, 1, [dist, payload], False)
+            packet = self._ez_pack(self._prefix, 1, [dist, block_payload.to_pack_list()], False)
             self.endpoint.send(address, packet)
         else:
             self.logger.debug("Broadcasting block %s", block)
-            payload = HalfBlockBroadcastPayload.from_half_block(block, ttl).to_pack_list()
-            packet = self._ez_pack(self._prefix, 5, [dist, payload], False)
+            broadcast_payload = HalfBlockBroadcastPayload(block_payload, ttl).to_pack_list()
+            packet = self._ez_pack(self._prefix, 5, [dist, broadcast_payload], False)
             peers = self.get_peers()
             for peer in random.sample(peers, min(len(peers), self.settings.broadcast_fanout)):
                 self.endpoint.send(peer.address, packet)
@@ -237,7 +239,7 @@ class TrustChainCommunity(Community):
         assert transaction is None or isinstance(transaction, dict), "Transaction should be a dictionary"
         assert additional_info is None or isinstance(additional_info, dict), "Additional info should be a dictionary"
 
-        self.persistence_integrity_check()
+        #self.persistence_integrity_check()
 
         if linked and linked.link_public_key != ANY_COUNTERPARTY_PK:
             block_type = linked.type
@@ -251,7 +253,7 @@ class TrustChainCommunity(Community):
         validation = block.validate(self.persistence)
         self.logger.info("Signed block to %s (%s) validation result %s",
                          hexlify(block.link_public_key)[-8:], block, validation)
-        if validation[0] != ValidationResult.valid:
+        if validation.state != ValidationResult.valid:
             self.logger.error("Signed block did not validate?! Result %s", repr(validation))
             return fail(RuntimeError("Signed block did not validate."))
 
@@ -309,7 +311,7 @@ class TrustChainCommunity(Community):
         """
         We received a half block, part of a broadcast. Disseminate it further.
         """
-        block = self.get_block_class(payload.type).from_payload(payload, self.serializer)
+        block = self.get_block_class(payload.block.type).from_payload(payload.block, self.serializer)
         self.validate_persist_block(block)
 
         if block.block_id not in self.relayed_broadcasts and payload.ttl > 1:
@@ -338,20 +340,62 @@ class TrustChainCommunity(Community):
         if block1.block_id not in self.relayed_broadcasts and payload.ttl > 1:
             self.send_block_pair(block1, block2, ttl=payload.ttl - 1)
 
-    def validate_persist_block(self, block):
+    @synchronized
+    @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, InconsistencyPairPayload)
+    def received_two_inconsistent_blocks(self, source_address, dist, payload):
+        block1 = self.get_block_class(payload.block.type).from_payload(payload.block1, self.serializer)
+        self.validate_persist_block(block1, should_share=False)
+        block2 = self.get_block_class(payload.block.type).from_payload(payload.block2, self.serializer)
+        self.validate_persist_block(block2, should_share=False)
+
+    @synchronized
+    @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, InconsistencyTripletPayload)
+    def received_three_inconsistent_blocks(self, source_address, dist, payload):
+        block1 = self.get_block_class(payload.block.type).from_payload(payload.block1, self.serializer)
+        self.validate_persist_block(block1, should_share=False)
+        block2 = self.get_block_class(payload.block.type).from_payload(payload.block2, self.serializer)
+        self.validate_persist_block(block2, should_share=False)
+        block3 = self.get_block_class(payload.block.type).from_payload(payload.block3, self.serializer)
+        self.validate_persist_block(block3, should_share=False)
+
+    def validate_persist_block(self, block, should_share=True):
         """
         Validate a block and if it's valid, persist it. Return the validation result.
         :param block: The block to validate and persist.
         :return: [ValidationResult]
         """
         validation = block.validate(self.persistence)
-        if validation[0] == ValidationResult.invalid:
+
+        if validation.is_inconsistent and self.settings.share_inconsistencies and should_share:
+            self.broadcast_inconsistencies(validation.inconsistent_blocks)
+
+        if validation.state == ValidationResult.invalid:
             pass
         elif not self.persistence.contains(block):
             self.persistence.add_block(block)
             self.notify_listeners(block)
 
         return validation
+
+    def broadcast_inconsistencies(self, blocks):
+        block1_payload = HalfBlockPayload.from_half_block(blocks[0])
+        block2_payload = HalfBlockPayload.from_half_block(blocks[1])
+
+        global_time = self.claim_global_time()
+        dist = GlobalTimeDistributionPayload(global_time).to_pack_list()
+
+        if len(blocks) == 2:
+            broadcast_payload = InconsistencyPairPayload(block1_payload, block2_payload).to_pack_list()
+            packet = self._ez_pack(self._prefix, 8, [dist, broadcast_payload], False)
+        elif len(blocks) == 3:
+            block3_payload = HalfBlockPayload.from_half_block(blocks[2])
+            broadcast_payload = InconsistencyTripletPayload(block1_payload, block2_payload, block3_payload).to_pack_list()
+            packet = self._ez_pack(self._prefix, 9, [dist, broadcast_payload], False)
+
+        peers = self.get_peers()
+        self.logger.info("Sending %d inconsistent blocks to %d peers!", len(blocks), self.settings.broadcast_fanout)
+        for peer in random.sample(peers, min(len(peers), self.settings.broadcast_fanout)):
+            self.endpoint.send(peer.address, packet)
 
     def notify_listeners(self, block):
         """
@@ -374,9 +418,9 @@ class TrustChainCommunity(Community):
         Process a received half block.
         """
         validation = self.validate_persist_block(blk)
-        self.logger.info("Block validation result %s, %s, (%s)", validation[0], validation[1], blk)
-        if validation[0] == ValidationResult.invalid:
-            raise RuntimeError(f"Block could not be validated: {validation[0]}, {validation[1]}")
+        self.logger.info("Block validation result %s, %s, (%s)", validation.state, validation.errors, blk)
+        if validation.state == ValidationResult.invalid:
+            raise RuntimeError(f"Block could not be validated: {validation.state}, {validation.errors}")
 
         # Check if we are waiting for this signature response
         link_block_id_int = int(hexlify(blk.linked_block_id), 16) % 100000000
@@ -592,7 +636,7 @@ class TrustChainCommunity(Community):
             self.logger.debug("No latest block found when trying to recover database!")
             return
         validation = self.validate_persist_block(block)
-        while validation[0] != ValidationResult.valid:
+        while validation.state != ValidationResult.valid:
             # The latest block is invalid, remove it.
             self.persistence.remove_block(block)
             self.logger.error("Removed invalid block %d from our chain", block.sequence_number)
@@ -611,7 +655,7 @@ class TrustChainCommunity(Community):
         if not block:
             return
         validation = self.validate_persist_block(block)
-        if validation[0] != ValidationResult.valid:
+        if validation.state != ValidationResult.valid:
             self.logger.error("Our chain did not validate. Result %s", repr(validation))
             self.sanitize_database()
 
@@ -619,15 +663,16 @@ class TrustChainCommunity(Community):
         self.logger.debug("Sending block for crawl request to %s (%s)", peer, block)
 
         # Don't answer with any invalid blocks.
-        validation = self.validate_persist_block(block)
-        if validation[0] == ValidationResult.invalid and total_count > 0:
-            # We send an empty block to the crawl requester if no blocks should be sent back
-            self.logger.error("Not sending crawl response, the block is invalid. Result %s", repr(validation))
-            self.persistence_integrity_check()
-            return
+        # validation = self.validate_persist_block(block)
+        # if validation.state == ValidationResult.invalid and total_count > 0:
+        #     # We send an empty block to the crawl requester if no blocks should be sent back
+        #     self.logger.error("Not sending crawl response, the block is invalid. Result %s", repr(validation))
+        #     self.persistence_integrity_check()
+        #     return
 
         global_time = self.claim_global_time()
-        payload = CrawlResponsePayload.from_crawl(block, crawl_id, index, total_count).to_pack_list()
+        block_payload = HalfBlockPayload.from_half_block(block)
+        payload = CrawlResponsePayload(block_payload, crawl_id, index, total_count).to_pack_list()
         dist = GlobalTimeDistributionPayload(global_time).to_pack_list()
 
         packet = self._ez_pack(self._prefix, 3, [dist, payload], False)
@@ -636,9 +681,13 @@ class TrustChainCommunity(Community):
     @synchronized
     @lazy_wrapper_unsigned_wd(GlobalTimeDistributionPayload, CrawlResponsePayload)
     async def received_crawl_response(self, source_address, dist, payload, data):
-        await self.received_half_block(source_address, data[:-12])  # We cut off a few bytes to make it a BlockPayload
+        peer = Peer(payload.block.public_key, source_address)
+        block = self.get_block_class(payload.block.type).from_payload(payload.block, self.serializer)
+        try:
+            await self.process_half_block(block, peer)
+        except RuntimeError as e:
+            self.logger.info("Failed to process half block (error %s)", e)
 
-        block = self.get_block_class(payload.type).from_payload(payload, self.serializer)
         cache = self.request_cache.get("crawl", payload.crawl_id)
         if cache:
             cache.received_block(block, payload.total_count)

@@ -249,7 +249,7 @@ class TrustChainBlock(object):
         # Check if the chain of blocks is properly hooked up.
         self.update_chain_consistency(prev_blk, next_blk, result)
 
-        return result.state, result.errors
+        return result
 
     def update_block_invariant(self, database, result):
         """
@@ -356,23 +356,29 @@ class TrustChainBlock(object):
                 result.err("Public key mismatch on linked block")
 
             if self.link_sequence_number != UNKNOWN_SEQ:
-                # # This is a confirmation
-                # if self.link_hash != link.hash:
-                #     result.err("Double countersign fraud")
-                #     self.write_fraud_time(self.public_key)
+                # This is a confirmation
+                if self.link_hash != link.hash:
+                    # The confirmation points to an unknown block. This might indicate fraud.
+                    result.is_inconsistent = True
+                    result.inconsistent_blocks.append(self)
+                    result.inconsistent_blocks.append(link)
 
                 # self counter signs another block (link). If link has a linked block that is not equal to self,
                 # then self is fraudulent, since it tries to countersign a block that is already countersigned
                 linklinked = database.get_linked(link)
                 if linklinked is not None and linklinked.hash != self.hash and \
                         link.link_public_key != ANY_COUNTERPARTY_PK:
-                    result.err("Double countersign fraud")
-                    #self.write_fraud_time(self.public_key)
-            # else:
-            #     # This is a proposal
-            #     if link.link_hash != self.hash:
-            #         result.err("Double countersign fraud")
-            #         self.write_fraud_time(self.public_key)
+                    result.is_inconsistent = True
+                    result.inconsistent_blocks.append(self)
+                    result.inconsistent_blocks.append(link)
+                    result.inconsistent_blocks.append(linklinked)
+            else:
+                # This is a proposal
+                if link.link_hash != self.hash:
+                    # The confirmation attached to this proposal points to an unknown block. This might indicate fraud.
+                    result.is_inconsistent = True
+                    result.inconsistent_blocks.append(self)
+                    result.inconsistent_blocks.append(link)
 
     def update_chain_consistency(self, prev_blk, next_blk, result):
         """
@@ -513,27 +519,6 @@ class ValidationResult(object):
         pass
 
     @staticmethod
-    def partial():
-        """
-        The block does not violate any rules, but there are gaps or no blocks on the previous or next block
-        """
-        pass
-
-    @staticmethod
-    def partial_previous():
-        """
-        The block does not violate any rules, but there is a gap or no block on the previous block
-        """
-        pass
-
-    @staticmethod
-    def no_info():
-        """
-        There are no blocks (previous or next) to validate against
-        """
-        pass
-
-    @staticmethod
     def invalid():
         """
         The block violates at least one validation rule
@@ -545,6 +530,8 @@ class ValidationResult(object):
         Create a new ValidationResult instance with valid state and no errors.
         """
         self.state = ValidationResult.valid
+        self.is_inconsistent = False
+        self.inconsistent_blocks = []
         self.errors = []
 
     def err(self, reason):
