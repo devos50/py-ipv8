@@ -602,14 +602,14 @@ class TestTrustChainCommunity(TestBase):
         Test whether random blocks are sent during a crawl request
         """
         for node in self.nodes:
-            node.overlay.settings.crawl_send_random_blocks = True
+            node.overlay.settings.crawl_send_random_blocks = 1
 
         his_key = self.nodes[0].my_peer.public_key.key_to_bin()
         await self.nodes[1].overlay.sign_block(list(self.nodes[0].network.verified_peers)[0], public_key=his_key,
                                                block_type=b'test', transaction={})
 
         self.add_node_to_experiment(self.create_node())
-        self.nodes[2].overlay.settings.crawl_send_random_blocks = True
+        self.nodes[2].overlay.settings.crawl_send_random_blocks = 1
 
         my_pubkey = self.nodes[2].my_peer.public_key.key_to_bin()
         self.nodes[2].overlay.send_crawl_request(self.nodes[0].my_peer, my_pubkey, 1, 1)

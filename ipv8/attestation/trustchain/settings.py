@@ -34,5 +34,5 @@ class TrustChainSettings(object):
         # Whether we share inconsistent results
         self.share_inconsistencies = False
 
-        # Whether we send random blocks during the crawl
-        self.crawl_send_random_blocks = False
+        # How many random blocks we send during the crawl
+        self.crawl_send_random_blocks = 0

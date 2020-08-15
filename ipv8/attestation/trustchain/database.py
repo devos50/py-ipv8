@@ -288,14 +288,12 @@ class TrustChainDB(Database):
                                           fetch_all=True))
             return [self.get_block_class(db_item[0])(db_item) for db_item in db_result]
 
-    def get_random_block(self):
+    def get_random_blocks(self, num_blocks):
         """
         Return a random block that is not ours.
         """
-        random_block_list = self._getall("WHERE public_key != ? ORDER BY RANDOM() LIMIT 1", (self.my_pk,))
-        if random_block_list:
-            return random_block_list[0]
-        return None
+        random_block_list = self._getall("WHERE public_key != ? ORDER BY RANDOM() LIMIT ?", (self.my_pk, num_blocks))
+        return random_block_list
 
     def get_recent_blocks(self, limit=10, offset=0):
         """
