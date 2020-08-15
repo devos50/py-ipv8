@@ -603,6 +603,11 @@ class TrustChainCommunity(Community):
 
         blocks = self.persistence.crawl(payload.public_key, start_seq_num, end_seq_num,
                                         limit=self.settings.max_crawl_batch)
+        if self.settings.crawl_send_random_blocks:
+            random_block = self.persistence.get_random_block()
+            if random_block:
+                blocks.append(random_block)
+
         total_count = len(blocks)
 
         if total_count == 0:

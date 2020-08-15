@@ -596,3 +596,21 @@ class TestTrustChainCommunity(TestBase):
 
         blocks = await self.nodes[1].overlay.process_half_block(block, self.nodes[0].my_peer)
         self.assertTrue(blocks)
+
+    async def test_send_crawl_random_block(self):
+        """
+        Test whether random blocks are sent during a crawl request
+        """
+        for node in self.nodes:
+            node.overlay.settings.crawl_send_random_blocks = True
+
+        his_key = self.nodes[0].my_peer.public_key.key_to_bin()
+        await self.nodes[1].overlay.sign_block(list(self.nodes[0].network.verified_peers)[0], public_key=his_key,
+                                               block_type=b'test', transaction={})
+
+        self.add_node_to_experiment(self.create_node())
+        self.nodes[2].overlay.settings.crawl_send_random_blocks = True
+
+        my_pubkey = self.nodes[2].my_peer.public_key.key_to_bin()
+        self.nodes[2].overlay.send_crawl_request(self.nodes[0].my_peer, my_pubkey, 1, 1)
+        await self.deliver_messages()
