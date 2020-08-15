@@ -1,76 +1,39 @@
+from ...messaging.lazy_payload import vp_compile, VariablePayload
 from ...messaging.payload import Payload
 
 
-class CrawlRequestPayload(Payload):
+@vp_compile
+class CrawlRequestPayload(VariablePayload):
     """
     Request a crawl of blocks starting with a specific sequence number or the first if 0.
     """
 
     msg_id = 2
     format_list = ['74s', 'l', 'l', 'I']
-
-    def __init__(self, public_key, start_seq_num, end_seq_num, crawl_id):
-        super(CrawlRequestPayload, self).__init__()
-        self.public_key = public_key
-        self.start_seq_num = start_seq_num
-        self.end_seq_num = end_seq_num
-        self.crawl_id = crawl_id
-
-    def to_pack_list(self):
-        data = [('74s', self.public_key),
-                ('l', self.start_seq_num),
-                ('l', self.end_seq_num),
-                ('I', self.crawl_id)]
-
-        return data
-
-    @classmethod
-    def from_unpack_list(cls, public_key, start_seq_num, end_seq_num, crawl_id):
-        return CrawlRequestPayload(public_key, start_seq_num, end_seq_num, crawl_id)
+    names = ['public_key', 'start_seq_num', 'end_seq_num', 'crawl_id']
 
 
-class EmptyCrawlResponsePayload(Payload):
+@vp_compile
+class EmptyCrawlResponsePayload(VariablePayload):
     """
     Payload for the message that indicates that there are no blocks to respond.
     """
 
     msg_id = 7
     format_list = ['I']
-
-    def __init__(self, crawl_id):
-        super(EmptyCrawlResponsePayload, self).__init__()
-        self.crawl_id = crawl_id
-
-    def to_pack_list(self):
-        data = [('I', self.crawl_id)]
-        return data
-
-    @classmethod
-    def from_unpack_list(cls, crawl_id):
-        return EmptyCrawlResponsePayload(crawl_id)
+    names = ['crawl_id']
 
 
-class HalfBlockPayload(Payload):
+@vp_compile
+class HalfBlockPayload(VariablePayload):
     """
     Payload for message that ships a half block
     """
 
     msg_id = 1
     format_list = ['74s', 'I', '74s', 'I', '32s', '32s', '64s', 'varlenI', 'varlenI', 'Q']
-
-    def __init__(self, public_key, sequence_number, link_public_key, link_sequence_number, link_hash, previous_hash,
-                 signature, block_type, transaction, timestamp):
-        super(HalfBlockPayload, self).__init__()
-        self.public_key = public_key
-        self.sequence_number = sequence_number
-        self.link_public_key = link_public_key
-        self.link_sequence_number = link_sequence_number
-        self.link_hash = link_hash
-        self.previous_hash = previous_hash
-        self.signature = signature
-        self.type = block_type
-        self.transaction = transaction
-        self.timestamp = timestamp
+    names = ['public_key', 'sequence_number', 'link_public_key', 'link_sequence_number', 'link_hash', 'previous_hash',
+             'signature', 'type', 'transaction', 'timestamp']
 
     @classmethod
     def from_half_block(cls, block):
@@ -87,39 +50,17 @@ class HalfBlockPayload(Payload):
             block.timestamp
         )
 
-    def to_pack_list(self):
-        data = [('74s', self.public_key),
-                ('I', self.sequence_number),
-                ('74s', self.link_public_key),
-                ('I', self.link_sequence_number),
-                ('32s', self.link_hash),
-                ('32s', self.previous_hash),
-                ('64s', self.signature),
-                ('varlenI', self.type),
-                ('varlenI', self.transaction),
-                ('Q', self.timestamp)]
 
-        return data
-
-    @classmethod
-    def from_unpack_list(cls, *args):
-        return HalfBlockPayload(*args)
-
-
-class HalfBlockBroadcastPayload(HalfBlockPayload):
+@vp_compile
+class HalfBlockBroadcastPayload(VariablePayload):
     """
     Payload for a message that contains a half block and a TTL field for broadcasts.
     """
 
     msg_id = 5
     format_list = ['74s', 'I', '74s', 'I', '32s', '32s', '64s', 'varlenI', 'varlenI', 'Q', 'I']
-
-    def __init__(self, public_key, sequence_number, link_public_key, link_sequence_number, link_hash, previous_hash,
-                 signature, block_type, transaction, timestamp, ttl):
-        super(HalfBlockBroadcastPayload, self).__init__(public_key, sequence_number, link_public_key,
-                                                        link_sequence_number, link_hash, previous_hash, signature,
-                                                        block_type, transaction, timestamp)
-        self.ttl = ttl
+    names = ['public_key', 'sequence_number', 'link_public_key', 'link_sequence_number', 'link_hash', 'previous_hash',
+             'signature', 'type', 'transaction', 'timestamp', 'ttl']
 
     @classmethod
     def from_half_block(cls, block, ttl):
@@ -137,40 +78,17 @@ class HalfBlockBroadcastPayload(HalfBlockPayload):
             ttl
         )
 
-    def to_pack_list(self):
-        data = super(HalfBlockBroadcastPayload, self).to_pack_list()
-        data.append(('I', self.ttl))
-        return data
 
-    @classmethod
-    def from_unpack_list(cls, *args):
-        return HalfBlockBroadcastPayload(*args)
-
-
-class CrawlResponsePayload(Payload):
+@vp_compile
+class CrawlResponsePayload(VariablePayload):
     """
     Payload for the response to a crawl request.
     """
 
     msg_id = 3
     format_list = ['74s', 'I', '74s', 'I', '32s', '32s', '64s', 'varlenI', 'varlenI', 'Q', 'I', 'I', 'I']
-
-    def __init__(self, public_key, sequence_number, link_public_key, link_sequence_number, link_hash, previous_hash, signature,
-                 block_type, transaction, timestamp, crawl_id, cur_count, total_count):
-        super(CrawlResponsePayload, self).__init__()
-        self.public_key = public_key
-        self.sequence_number = sequence_number
-        self.link_public_key = link_public_key
-        self.link_sequence_number = link_sequence_number
-        self.link_hash = link_hash
-        self.previous_hash = previous_hash
-        self.signature = signature
-        self.type = block_type
-        self.transaction = transaction
-        self.timestamp = timestamp
-        self.crawl_id = crawl_id
-        self.cur_count = cur_count
-        self.total_count = total_count
+    names = ['public_key', 'sequence_number', 'link_public_key', 'link_sequence_number', 'link_hash', 'previous_hash',
+             'signature', 'type', 'transaction', 'timestamp', 'crawl_id', 'cur_count', 'total_count']
 
     @classmethod
     def from_crawl(cls, block, crawl_id, cur_count, total_count):
@@ -189,27 +107,6 @@ class CrawlResponsePayload(Payload):
             cur_count,
             total_count,
         )
-
-    def to_pack_list(self):
-        data = [('74s', self.public_key),
-                ('I', self.sequence_number),
-                ('74s', self.link_public_key),
-                ('I', self.link_sequence_number),
-                ('32s', self.link_hash),
-                ('32s', self.previous_hash),
-                ('64s', self.signature),
-                ('varlenI', self.type),
-                ('varlenI', self.transaction),
-                ('Q', self.timestamp),
-                ('I', self.crawl_id),
-                ('I', self.cur_count),
-                ('I', self.total_count)]
-
-        return data
-
-    @classmethod
-    def from_unpack_list(cls, *args):
-        return CrawlResponsePayload(*args)
 
 
 class HalfBlockPairPayload(Payload):
