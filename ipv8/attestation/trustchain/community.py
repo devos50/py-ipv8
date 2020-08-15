@@ -685,8 +685,8 @@ class TrustChainCommunity(Community):
             self.logger.debug("Skipping crawl of peer %s, another crawl is pending", peer)
             return
 
-        # if self.settings.crawler:
-        #     self.crawl_chain(peer, latest_block_num=chain_length)
+        if self.settings.crawler:
+            self.crawl_chain(peer, latest_block_num=chain_length)
         # else:
         #     known_blocks = self.persistence.get_number_of_known_blocks(public_key=peer.public_key.key_to_bin())
         #     if known_blocks < 1000 or random.random() > 0.5:

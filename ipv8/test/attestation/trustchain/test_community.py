@@ -353,34 +353,6 @@ class TestTrustChainCommunity(TestBase):
         self.assertIn(block1.block_id, self.nodes[1].overlay.relayed_broadcasts)
         self.assertIn(block1.block_id, node3.overlay.relayed_broadcasts)
 
-    async def test_intro_response_crawl(self):
-        """
-        Test whether we crawl a node when receiving an introduction response
-        """
-        self.nodes[0].endpoint.close()
-
-        my_pubkey = self.nodes[0].my_peer.public_key.key_to_bin()
-        self.nodes[0].overlay.create_source_block(block_type=b'test', transaction={})
-        await self.deliver_messages()
-
-        self.nodes[0].endpoint.open()
-
-        # Crawl each other
-        await self.introduce_nodes()
-
-        # We should have received the block now
-        self.assertIsNotNone(self.nodes[1].overlay.persistence.get_latest(my_pubkey))
-
-        # Check whether we do not crawl this node again in a short time
-        self.nodes[0].endpoint.close()
-        self.nodes[0].overlay.create_source_block(block_type=b'test', transaction={})
-        self.nodes[0].endpoint.open()
-
-        await self.introduce_nodes()
-
-        # We should not have crawled this second block
-        self.assertEqual(self.nodes[1].overlay.persistence.get_latest(my_pubkey).sequence_number, 1)
-
     async def test_empty_crawl(self):
         """
         Test a crawl request to a peer without any blocks
