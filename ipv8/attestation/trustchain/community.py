@@ -343,19 +343,19 @@ class TrustChainCommunity(Community):
     @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, InconsistencyPairPayload)
     def received_two_inconsistent_blocks(self, source_address, dist, payload):
-        block1 = self.get_block_class(payload.block.type).from_payload(payload.block1, self.serializer)
+        block1 = self.get_block_class(payload.block1.type).from_payload(payload.block1, self.serializer)
         self.validate_persist_block(block1, should_share=False)
-        block2 = self.get_block_class(payload.block.type).from_payload(payload.block2, self.serializer)
+        block2 = self.get_block_class(payload.block2.type).from_payload(payload.block2, self.serializer)
         self.validate_persist_block(block2, should_share=False)
 
     @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, InconsistencyTripletPayload)
     def received_three_inconsistent_blocks(self, source_address, dist, payload):
-        block1 = self.get_block_class(payload.block.type).from_payload(payload.block1, self.serializer)
+        block1 = self.get_block_class(payload.block1.type).from_payload(payload.block1, self.serializer)
         self.validate_persist_block(block1, should_share=False)
-        block2 = self.get_block_class(payload.block.type).from_payload(payload.block2, self.serializer)
+        block2 = self.get_block_class(payload.block2.type).from_payload(payload.block2, self.serializer)
         self.validate_persist_block(block2, should_share=False)
-        block3 = self.get_block_class(payload.block.type).from_payload(payload.block3, self.serializer)
+        block3 = self.get_block_class(payload.block3.type).from_payload(payload.block3, self.serializer)
         self.validate_persist_block(block3, should_share=False)
 
     def validate_persist_block(self, block, should_share=True):
