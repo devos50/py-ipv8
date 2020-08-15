@@ -95,6 +95,11 @@ class DispatcherEndpoint(Endpoint):
     def bytes_down(self):
         return sum(interface.bytes_down for interface in self.interfaces.values())
 
+    def reset_statistics(self):
+        for interface in self.interfaces.values():
+            interface.bytes_up = 0
+            interface.bytes_down = 0
+
     def add_listener(self, listener) -> None:
         for interface in self.interfaces.values():
             interface.add_listener(listener)
