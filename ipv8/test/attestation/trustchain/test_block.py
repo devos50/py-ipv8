@@ -57,12 +57,14 @@ class MockDatabase(object):
         super(MockDatabase, self).__init__()
         self.data = dict()
         self.double_spends = []
+        self.linked_block_cache = {}
 
     def add_block(self, block):
         if self.data.get(block.public_key) is None:
             self.data[block.public_key] = []
         self.data[block.public_key].append(block)
         self.data[block.public_key].sort(key=lambda b: b.sequence_number)
+        self.linked_block_cache[(block.link_public_key, block.link_sequence_number)] = block
 
     def get(self, pk, seq):
         if self.data.get(pk) is None:
@@ -76,6 +78,11 @@ class MockDatabase(object):
         item = [i for i in self.data[blk.link_public_key] if
                 i.sequence_number == blk.link_sequence_number or i.link_sequence_number == blk.sequence_number]
         return item[0] if item else None
+
+    def get_linked_sq_pk(self, public_key, sequence_number):
+        if (public_key, sequence_number) in self.linked_block_cache:
+            return self.linked_block_cache[(public_key, sequence_number)]
+        return None
 
     def get_latest(self, pk):
         return self.data[pk][-1] if self.data.get(pk) else None
@@ -648,6 +655,42 @@ class TestTrustChainBlock(TestBase):
         db = MockDatabase()
         db.add_block(confirmation)
         proposal.update_linked_consistency(db, confirmation, result)
+
+        self.assertTrue(result.is_inconsistent)
+
+    def test_prev_confirm_inconsistency_incoming_link(self):
+        """
+        Test for error with inconsistent previous/confirmation pointers
+        """
+        result = ValidationResult()
+        db = MockDatabase()
+        block = TestBlock()
+        block.timestamp = 12345
+
+        next_block = TestBlock(previous=block)
+        db.add_block(next_block)
+
+        link_block = TestBlock(linked=block)
+        link_block.link_hash = b'a' * 32
+        link_block.update_linked_consistency(db, None, result)
+
+        self.assertTrue(result.is_inconsistent)
+
+    def test_prev_confirm_inconsistency_incoming_next(self):
+        """
+        Test for error with inconsistent previous/confirmation pointers
+        """
+        result = ValidationResult()
+        db = MockDatabase()
+        block = TestBlock()
+        block.timestamp = 12345
+
+        link_block = TestBlock(linked=block)
+        link_block.link_hash = b'a' * 32
+        db.add_block(link_block)
+
+        next_block = TestBlock(previous=block)
+        next_block.update_linked_consistency(db, None, result)
 
         self.assertTrue(result.is_inconsistent)
 

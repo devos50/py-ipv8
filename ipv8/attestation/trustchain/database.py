@@ -259,6 +259,10 @@ class TrustChainDB(Database):
                          (database_blob(block.link_public_key), block.link_sequence_number,
                           database_blob(block.public_key), block.sequence_number))
 
+    def get_linked_sq_pk(self, public_key, sequence_number):
+        return self._get(u"WHERE public_key = ? AND sequence_number = ? ORDER BY block_timestamp ASC",
+                         (database_blob(public_key), sequence_number))
+
     def get_all_linked(self, block):
         """
         Return all linked blocks for a specific block.

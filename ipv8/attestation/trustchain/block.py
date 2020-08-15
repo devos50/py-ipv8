@@ -381,6 +381,20 @@ class TrustChainBlock(object):
                     result.is_inconsistent = True
                     result.inconsistent_blocks.add(self)
                     result.inconsistent_blocks.add(link)
+        else:
+            # We do not have a linked block, however, we are still able to perform a few checks
+            if self.link_sequence_number != UNKNOWN_SEQ:
+                linked_next = database.get(self.link_public_key, self.link_sequence_number + 1)
+                if linked_next and linked_next.previous_hash != self.link_hash:
+                    result.is_inconsistent = True
+                    result.inconsistent_blocks.add(self)
+                    result.inconsistent_blocks.add(linked_next)
+
+        linked_prev = database.get_linked_sq_pk(self.public_key, self.sequence_number - 1)
+        if linked_prev and linked_prev.link_hash != self.previous_hash:
+            result.is_inconsistent = True
+            result.inconsistent_blocks.add(self)
+            result.inconsistent_blocks.add(linked_prev)
 
     def update_chain_consistency(self, prev_blk, next_blk, result):
         """
