@@ -470,6 +470,7 @@ class TestTrustChainBlock(TestBase):
         block = TestBlock()
         block.sequence_number = 1
         block.link_sequence_number = 4
+
         link = TestBlock()
         link.sequence_number = 4
         link.link_sequence_number = 0
@@ -636,6 +637,47 @@ class TestTrustChainBlock(TestBase):
         block.update_chain_consistency(None, next_block, result)
 
         self.assertEqual(ValidationResult.valid, result.state)
+
+    def test_inconsistency_incoming_proposal_linked_incorrect(self):
+        """
+        Check whether an inconsistency is detected when receiving a proposal that does not link to a known linked block.
+        """
+        result = ValidationResult()
+        proposal = TestBlock()
+        confirmation = TestBlock(linked=proposal)
+        db = MockDatabase()
+        db.add_block(confirmation)
+        proposal.update_linked_consistency(db, confirmation, result)
+
+        self.assertTrue(result.is_inconsistent)
+
+    def test_inconsistency_incoming_confirmation_linked_incorrect(self):
+        """
+        Check whether an inconsistency is detected when receiving a confirmation that does not link to a known linked block.
+        """
+        result = ValidationResult()
+        proposal = TestBlock()
+        confirmation = TestBlock(linked=proposal)
+        db = MockDatabase()
+        db.add_block(proposal)
+        confirmation.update_linked_consistency(db, proposal, result)
+
+        self.assertTrue(result.is_inconsistent)
+
+    def test_inconsistency_incoming_confirmation_link_linked_incorrect(self):
+        """
+        Check whether an inconsistency is detected when receiving a confirmation that does not link to a known linked block.
+        """
+        result = ValidationResult()
+        proposal = TestBlock()
+        confirmation = TestBlock(linked=proposal)
+        confirmation2 = TestBlock(linked=proposal)
+        db = MockDatabase()
+        db.add_block(proposal)
+        db.add_block(confirmation)
+        confirmation.update_linked_consistency(db, confirmation2, result)
+
+        self.assertTrue(result.is_inconsistent)
 
     def test_iter(self):
         """

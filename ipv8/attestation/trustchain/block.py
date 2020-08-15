@@ -171,7 +171,7 @@ class TrustChainBlock(object):
             self.type)
 
     def __hash__(self):
-        return self.hash
+        return int(hexlify(self.hash), 16)
 
     def __eq__(self, other):
         if not isinstance(other, TrustChainBlock):
@@ -360,8 +360,8 @@ class TrustChainBlock(object):
                 if self.link_hash != link.hash:
                     # The confirmation points to an unknown block. This might indicate fraud.
                     result.is_inconsistent = True
-                    result.inconsistent_blocks.append(self)
-                    result.inconsistent_blocks.append(link)
+                    result.inconsistent_blocks.add(self)
+                    result.inconsistent_blocks.add(link)
 
                 # self counter signs another block (link). If link has a linked block that is not equal to self,
                 # then self is fraudulent, since it tries to countersign a block that is already countersigned
@@ -369,16 +369,18 @@ class TrustChainBlock(object):
                 if linklinked is not None and linklinked.hash != self.hash and \
                         link.link_public_key != ANY_COUNTERPARTY_PK:
                     result.is_inconsistent = True
-                    result.inconsistent_blocks.append(self)
-                    result.inconsistent_blocks.append(link)
-                    result.inconsistent_blocks.append(linklinked)
+                    result.inconsistent_blocks.add(self)
+                    result.inconsistent_blocks.add(link)
+                    result.inconsistent_blocks.add(linklinked)
+
+                    result.err("Double countersign fraud")
             else:
                 # This is a proposal
                 if link.link_hash != self.hash:
                     # The confirmation attached to this proposal points to an unknown block. This might indicate fraud.
                     result.is_inconsistent = True
-                    result.inconsistent_blocks.append(self)
-                    result.inconsistent_blocks.append(link)
+                    result.inconsistent_blocks.add(self)
+                    result.inconsistent_blocks.add(link)
 
     def update_chain_consistency(self, prev_blk, next_blk, result):
         """
@@ -531,7 +533,7 @@ class ValidationResult(object):
         """
         self.state = ValidationResult.valid
         self.is_inconsistent = False
-        self.inconsistent_blocks = []
+        self.inconsistent_blocks = set()
         self.errors = []
 
     def err(self, reason):

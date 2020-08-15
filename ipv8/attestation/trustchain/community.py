@@ -378,6 +378,7 @@ class TrustChainCommunity(Community):
         return validation
 
     def broadcast_inconsistencies(self, blocks):
+        blocks = list(blocks)
         block1_payload = HalfBlockPayload.from_half_block(blocks[0])
         block2_payload = HalfBlockPayload.from_half_block(blocks[1])
 
