@@ -366,7 +366,7 @@ class TrustChainCommunity(Community):
         """
         validation = block.validate(self.persistence)
 
-        if validation.is_inconsistent and self.settings.share_inconsistencies and should_share:
+        if validation.is_inconsistent and self.settings.share_inconsistencies and should_share and validation.state == ValidationResult.valid:
             self.broadcast_inconsistencies(validation.inconsistent_blocks)
 
         if validation.state == ValidationResult.invalid:
