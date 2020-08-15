@@ -237,9 +237,6 @@ class TrustChainBlock(object):
         prev_blk = database.get_block_before(self)
         next_blk = database.get_block_after(self)
 
-        # Update the validation result to reflect the achievable validation level.
-        self.update_validation_level(prev_blk, next_blk, result)
-
         # Update the validation result through checking the block invariant.
         self.update_block_invariant(database, result)
 
@@ -250,62 +247,9 @@ class TrustChainBlock(object):
         self.update_linked_consistency(database, link, result)
 
         # Check if the chain of blocks is properly hooked up.
-        self.update_chain_consistency(prev_blk, next_blk, result, database)
+        self.update_chain_consistency(prev_blk, next_blk, result)
 
         return result.state, result.errors
-
-    def update_validation_level(self, prev_blk, next_blk, result):
-        """
-        Determine the maximum validation level.
-
-        Depending on the blocks we get from the database, we can decide to reduce the validation level. We must do
-        this prior to flagging any errors. This way we are only ever reducing the validation level without having to
-        resort to min()/max() every time we set it. We first determine some booleans to make everything readable.
-
-        :param prev_blk: the previous block in the chain
-        :type prev_blk: TrustChainBlock or None
-        :param next_blk: the next block in the chain
-        :type next_blk: TrustChainBlock or None
-        :param result: the result to update
-        :type result: ValidationResult
-        :returns: None
-        """
-        is_prev_gap = prev_blk.sequence_number != self.sequence_number - 1 if prev_blk else True
-        is_next_gap = next_blk.sequence_number != self.sequence_number + 1 if next_blk else True
-        if not prev_blk and not next_blk:
-            # Is this block a non genesis block? If so, we know nothing about this public key, else pretend the
-            # prev_blk exists
-            if not self.is_genesis:
-                result.state = ValidationResult.no_info
-            else:
-                # We pretend prev_blk exists. This leaves us with next missing, which means partial-next at best.
-                result.state = ValidationResult.partial_next
-        elif not prev_blk and next_blk:
-            # Is this block a non genesis block?
-            if not self.is_genesis:
-                # We are really missing prev_blk. So now partial-prev at best.
-                result.state = ValidationResult.partial_previous
-                if is_next_gap:
-                    # Both sides are unknown or non-contiguous return a full partial result.
-                    result.state = ValidationResult.partial
-            elif is_next_gap:
-                # This is a genesis block, so the missing previous is expected. If there is a gap to the next block
-                # this reduces the validation result to partial-next
-                result.state = ValidationResult.partial_next
-        elif prev_blk and not next_blk:
-            # We are missing next_blk, so now partial-next at best.
-            result.state = ValidationResult.partial_next
-            if is_prev_gap:
-                # Both sides are unknown or non-contiguous return a full partial result.
-                result.state = ValidationResult.partial
-        else:
-            # both sides have known blocks, see if there are gaps
-            if is_prev_gap and is_next_gap:
-                result.state = ValidationResult.partial
-            elif is_prev_gap:
-                result.state = ValidationResult.partial_previous
-            elif is_next_gap:
-                result.state = ValidationResult.partial_next
 
     def update_block_invariant(self, database, result):
         """
@@ -430,7 +374,7 @@ class TrustChainBlock(object):
             #         result.err("Double countersign fraud")
             #         self.write_fraud_time(self.public_key)
 
-    def update_chain_consistency(self, prev_blk, next_blk, result, database):
+    def update_chain_consistency(self, prev_blk, next_blk, result):
         """
         Check for chain order consistency.
 
@@ -572,13 +516,6 @@ class ValidationResult(object):
     def partial():
         """
         The block does not violate any rules, but there are gaps or no blocks on the previous or next block
-        """
-        pass
-
-    @staticmethod
-    def partial_next():
-        """
-        The block does not violate any rules, but there is a gap or no block on the next block
         """
         pass
 

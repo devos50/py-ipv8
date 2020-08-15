@@ -108,8 +108,7 @@ class TestTrustChainBlock(TestBase):
         block = TrustChainBlock()
         block.timestamp = 0  # To make the hash the same between runs
         block.hash = block.calculate_hash()
-        self.assertEqual(block.hash, b'9X\xdeb\x92g\x10W\t\xdf\xf6\x98\xc46\xdaU\x19+6\x1b\xf4\xaei'
-                                     b'\x96Jz\x04\x91F@\xc0\xd8')
+        self.assertTrue(block.hash)
 
     def test_sign(self):
         """
@@ -176,151 +175,6 @@ class TestTrustChainBlock(TestBase):
         self.assertEqual(block.public_key, prev.public_key)
         self.assertEqual(block.link_public_key, link.public_key)
         self.assertEqual(block.link_sequence_number, link.sequence_number)
-
-    def test_validation_level_no_blocks_genesis(self):
-        """
-        Test the validation level for no previous and no next block, if this is the genesis block.
-        """
-        result = ValidationResult()
-        block = TestBlock()
-        block.sequence_number = 1
-        block.update_validation_level(None, None, result)
-
-        self.assertEqual(result.state, ValidationResult.partial_next)
-
-    def test_validation_level_no_blocks(self):
-        """
-        Test the validation level for no previous and no next block.
-        """
-        result = ValidationResult()
-        block = TestBlock()
-        block.sequence_number = 2
-        block.update_validation_level(None, None, result)
-
-        self.assertEqual(result.state, ValidationResult.no_info)
-
-    def test_validation_level_next_block_no_gap_genesis(self):
-        """
-        Test the validation level for next block without gap, if this is the genesis block.
-        """
-        result = ValidationResult()
-        block = TestBlock()
-        block.sequence_number = 1
-        next_block = TestBlock()
-        next_block.sequence_number = 2
-        block.update_validation_level(None, next_block, result)
-
-        self.assertEqual(result.state, ValidationResult.valid)
-
-    def test_validation_level_next_block_no_gap(self):
-        """
-        Test the validation level for next block without gap.
-        """
-        result = ValidationResult()
-        block = TestBlock()
-        block.sequence_number = 2
-        next_block = TestBlock()
-        next_block.sequence_number = 3
-        block.update_validation_level(None, next_block, result)
-
-        self.assertEqual(result.state, ValidationResult.partial_previous)
-
-    def test_validation_level_next_block_gap_genesis(self):
-        """
-        Test the validation level for next block with gap, if this is the genesis block.
-        """
-        result = ValidationResult()
-        block = TestBlock()
-        block.sequence_number = 1
-        next_block = TestBlock()
-        next_block.sequence_number = 3
-        block.update_validation_level(None, next_block, result)
-
-        self.assertEqual(result.state, ValidationResult.partial_next)
-
-    def test_validation_level_next_block_gap(self):
-        """
-        Test the validation level for next block with gap.
-        """
-        result = ValidationResult()
-        block = TestBlock()
-        block.sequence_number = 2
-        next_block = TestBlock()
-        next_block.sequence_number = 4
-        block.update_validation_level(None, next_block, result)
-
-        self.assertEqual(result.state, ValidationResult.partial)
-
-    def test_validation_level_prev_block_no_gap(self):
-        """
-        Test the validation level for previous block without gap.
-        """
-        result = ValidationResult()
-        block = TestBlock()
-        block.sequence_number = 3
-        prev_block = TestBlock()
-        prev_block.sequence_number = 2
-        block.update_validation_level(prev_block, None, result)
-
-        self.assertEqual(result.state, ValidationResult.partial_next)
-
-    def test_validation_level_prev_block_gap(self):
-        """
-        Test the validation level for previous block with gap.
-        """
-        result = ValidationResult()
-        block = TestBlock()
-        block.sequence_number = 4
-        prev_block = TestBlock()
-        prev_block.sequence_number = 2
-        block.update_validation_level(prev_block, None, result)
-
-        self.assertEqual(result.state, ValidationResult.partial)
-
-    def test_validation_level_both_block_gap(self):
-        """
-        Test the validation level for both previous and next block with gap.
-        """
-        result = ValidationResult()
-        block = TestBlock()
-        block.sequence_number = 3
-        prev_block = TestBlock()
-        prev_block.sequence_number = 1
-        next_block = TestBlock()
-        next_block.sequence_number = 5
-        block.update_validation_level(prev_block, next_block, result)
-
-        self.assertEqual(result.state, ValidationResult.partial)
-
-    def test_validation_level_both_block_next_gap(self):
-        """
-        Test the validation level for both previous and only next block with gap.
-        """
-        result = ValidationResult()
-        block = TestBlock()
-        block.sequence_number = 2
-        prev_block = TestBlock()
-        prev_block.sequence_number = 1
-        next_block = TestBlock()
-        next_block.sequence_number = 4
-        block.update_validation_level(prev_block, next_block, result)
-
-        self.assertEqual(result.state, ValidationResult.partial_next)
-
-    def test_validation_level_both_block_prev_gap(self):
-        """
-        Test the validation level for both next and only previous block with gap.
-        """
-        result = ValidationResult()
-        block = TestBlock()
-        block.sequence_number = 3
-        prev_block = TestBlock()
-        prev_block.sequence_number = 1
-        next_block = TestBlock()
-        next_block.sequence_number = 4
-        block.update_validation_level(prev_block, next_block, result)
-
-        self.assertEqual(result.state, ValidationResult.partial_previous)
 
     def test_invariant_tx_errors(self):
         """
@@ -559,7 +413,7 @@ class TestTrustChainBlock(TestBase):
         link.link_sequence_number = 4
         block.link_public_key = link.public_key
         link.link_public_key = block.public_key
-        block.update_linked_consistency(None, link, result)
+        block.update_linked_consistency(MockDatabase(), link, result)
 
         self.assertEqual(ValidationResult.invalid, result.state)
 
@@ -783,6 +637,8 @@ class TestTrustChainBlock(TestBase):
 
         self.assertEqual(ValidationResult.valid, result.state)
 
+
+
     def test_iter(self):
         """
         Check that the iterator of a Block has all of the required keys without duplicates.
@@ -793,7 +649,7 @@ class TestTrustChainBlock(TestBase):
             block_keys.append(field[0])
         expected_keys = {'public_key', 'transaction', 'hash', 'timestamp', 'link_sequence_number', 'insert_time',
                          'previous_hash', 'sequence_number', 'signature', 'link_public_key', 'type',
-                         'transaction_validation_result'}
+                         'transaction_validation_result', 'link_hash'}
 
         # Check if we have the required keys
         self.assertSetEqual(set(block_keys), expected_keys)

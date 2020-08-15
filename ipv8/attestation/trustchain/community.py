@@ -251,7 +251,7 @@ class TrustChainCommunity(Community):
         validation = block.validate(self.persistence)
         self.logger.info("Signed block to %s (%s) validation result %s",
                          hexlify(block.link_public_key)[-8:], block, validation)
-        if validation[0] != ValidationResult.partial_next and validation[0] != ValidationResult.valid:
+        if validation[0] != ValidationResult.valid:
             self.logger.error("Signed block did not validate?! Result %s", repr(validation))
             return fail(RuntimeError("Signed block did not validate."))
 
@@ -408,8 +408,8 @@ class TrustChainCommunity(Community):
         # It is important that the request matches up with its previous block, gaps cannot be tolerated at
         # this point. We already dropped invalids, so here we delay this message if the result is partial,
         # partial_previous or no-info. We send a crawl request to the requester to (hopefully) close the gap
-        if (validation[0] == ValidationResult.partial_previous or validation[0] == ValidationResult.partial
-                or validation[0] == ValidationResult.no_info) and self.settings.validation_range > 0:
+        prev_blk = self.persistence.get(blk.public_key, blk.sequence_number - 1)
+        if not prev_blk and blk.sequence_number > 1 and self.settings.validation_range > 0:
             self.logger.info("Request block could not be validated sufficiently, crawling requester. %s", validation)
             # Note that this code does not cover the scenario where we obtain this block indirectly.
             if not self.request_cache.has("crawl", blk.hash_number):
@@ -592,7 +592,7 @@ class TrustChainCommunity(Community):
             self.logger.debug("No latest block found when trying to recover database!")
             return
         validation = self.validate_persist_block(block)
-        while validation[0] != ValidationResult.partial_next and validation[0] != ValidationResult.valid:
+        while validation[0] != ValidationResult.valid:
             # The latest block is invalid, remove it.
             self.persistence.remove_block(block)
             self.logger.error("Removed invalid block %d from our chain", block.sequence_number)
@@ -611,7 +611,7 @@ class TrustChainCommunity(Community):
         if not block:
             return
         validation = self.validate_persist_block(block)
-        if validation[0] != ValidationResult.partial_next and validation[0] != ValidationResult.valid:
+        if validation[0] != ValidationResult.valid:
             self.logger.error("Our chain did not validate. Result %s", repr(validation))
             self.sanitize_database()
 
