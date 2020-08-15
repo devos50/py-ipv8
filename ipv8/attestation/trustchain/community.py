@@ -604,7 +604,7 @@ class TrustChainCommunity(Community):
         blocks = self.persistence.crawl(payload.public_key, start_seq_num, end_seq_num,
                                         limit=self.settings.max_crawl_batch)
         if self.settings.crawl_send_random_blocks > 0:
-            random_blocks = self.persistence.get_random_blocks(2)
+            random_blocks = self.persistence.get_random_blocks(self.settings.crawl_send_random_blocks)
             if random_blocks:
                 blocks.extend(random_blocks)
 
