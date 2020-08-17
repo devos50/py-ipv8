@@ -364,6 +364,7 @@ class TrustChainBlock(object):
                "Public key is not valid" not in result.errors:
                 result.err("Double sign fraud")
                 database.add_double_spend(blk, self)
+                result.did_double_spend = True
                 self.write_fraud_time(blk.public_key)
 
     def update_linked_consistency(self, database, link, result):
@@ -455,6 +456,7 @@ class TrustChainBlock(object):
                 result.err("Previous block sequence number mismatch")
             if not is_prev_gap and prev_blk.hash != self.previous_hash:
                 result.err("Previous hash is not equal to the hash id of the previous block")
+                result.did_double_spend = True
                 # Is this fraud? It is certainly an error, but fixing it would require a different signature on the same
                 # sequence number which is fraud.
                 self.write_fraud_time(self.public_key)
@@ -466,7 +468,15 @@ class TrustChainBlock(object):
                 result.err("Next block sequence number mismatch")
             if not is_next_gap and next_blk.previous_hash != self.hash:
                 result.err("Next hash is not equal to the hash id of the block")
+                result.did_double_spend = True
                 # Again, this might not be fraud, but fixing it can only result in fraud.
+                self.write_fraud_time(self.public_key)
+
+        if (self.public_key, self.sequence_number - 1) in database.hash_map:
+            prev_hash = database.hash_map[(self.public_key, self.sequence_number - 1)]
+            if prev_hash != self.previous_hash:
+                result.err("The previous hash does not align")
+                result.did_double_spend = True
                 self.write_fraud_time(self.public_key)
 
         # Check the previous hashes
@@ -475,6 +485,7 @@ class TrustChainBlock(object):
                 blk_hash = database.hash_map[(self.public_key, prev_seq_num)]
                 if prev_hash != blk_hash:
                     result.err("One of the previous hashes (sq %d) does not align" % prev_seq_num)
+                    result.did_double_spend = True
                     self.write_fraud_time(self.public_key)
             else:
                 database.hash_map[(self.public_key, prev_seq_num)] = prev_hash
@@ -599,6 +610,7 @@ class ValidationResult(object):
         self.state = ValidationResult.valid
         self.is_inconsistent = False
         self.inconsistent_blocks = set()
+        self.did_double_spend = False
         self.errors = []
 
     def err(self, reason):
