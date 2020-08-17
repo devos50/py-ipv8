@@ -250,12 +250,12 @@ class TrustChainCommunity(Community):
                                                         link_pk=public_key, double_spend=double_spend)
         block.sign(self.my_peer.key)
 
-        validation = block.validate(self.persistence)
-        self.logger.info("Signed block to %s (%s) validation result %s",
-                         hexlify(block.link_public_key)[-8:], block, validation)
-        if validation.state != ValidationResult.valid:
-            self.logger.error("Signed block did not validate?! Result %s", validation.errors)
-            return fail(RuntimeError("Signed block did not validate."))
+        # validation = block.validate(self.persistence)
+        # self.logger.info("Signed block to %s (%s) validation result %s",
+        #                  hexlify(block.link_public_key)[-8:], block, validation)
+        # if validation.state != ValidationResult.valid:
+        #     self.logger.error("Signed block did not validate?! Result %s", validation.errors)
+        #     return fail(RuntimeError("Signed block did not validate."))
 
         if not self.persistence.contains(block):
             self.persistence.add_block(block)
