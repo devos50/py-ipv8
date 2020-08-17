@@ -1,4 +1,5 @@
 import logging
+import random
 import time
 from binascii import hexlify
 from collections import namedtuple
@@ -12,8 +13,9 @@ from ...keyvault.crypto import default_eccrypto
 from ...messaging.serialization import PackError, default_serializer
 
 
-GENESIS_HASH = b'0' * 32  # ID of the first block of the chain.
-EMPTY_HASH = b'0' * 32
+HASH_LENGTH = 32
+GENESIS_HASH = b'0' * HASH_LENGTH  # ID of the first block of the chain.
+EMPTY_HASH = b'0' * HASH_LENGTH
 GENESIS_SEQ = 1
 UNKNOWN_SEQ = 0
 EMPTY_SIG = b'0' * 64
@@ -34,6 +36,7 @@ class TrustChainBlock(object):
                                'link_sequence_number',
                                'link_hash',
                                'previous_hash',
+                               'previous_hash_set',
                                'signature',
                                'timestamp',
                                'insert_time'])
@@ -110,6 +113,7 @@ class TrustChainBlock(object):
             self.link_hash = EMPTY_HASH
             # validation
             self.previous_hash = GENESIS_HASH
+            self.previous_hash_set = []
             self.signature = EMPTY_SIG
             self.timestamp = int(time.time() * 1000)
             # debug stuff
@@ -118,10 +122,10 @@ class TrustChainBlock(object):
             self._transaction = data[1] if isinstance(data[1], bytes) else bytes(data[1])
             self.transaction = json.loads(self._transaction)
             (self.type, self.public_key, self.sequence_number, self.link_public_key, self.link_sequence_number, self.link_hash,
-             self.previous_hash, self.signature, self.timestamp, self.insert_time) = (data[0], data[2], data[3],
+             self.previous_hash, raw_prev_hashes, self.signature, self.timestamp, self.insert_time) = (data[0], data[2], data[3],
                                                                                       data[4], data[5], data[6],
                                                                                       data[7], data[8], data[9],
-                                                                                      data[10])
+                                                                                      data[10], data[11])
             self.type = self.type if isinstance(self.type, bytes) else str(self.type).encode('utf-8')
             self.public_key = self.public_key if isinstance(self.public_key, bytes) else bytes(self.public_key)
             self.link_public_key = (self.link_public_key if isinstance(self.link_public_key, bytes)
@@ -130,9 +134,34 @@ class TrustChainBlock(object):
             self.previous_hash = (self.previous_hash if isinstance(self.previous_hash, bytes)
                                   else bytes(self.previous_hash))
             self.signature = self.signature if isinstance(self.signature, bytes) else bytes(self.signature)
+
+            # Parse the previous hashes
+            self.previous_hash_set = []
+            prev_seq_nums = TrustChainBlock.get_prev_blocks(self.public_key, self.sequence_number, 10)
+            num_previous_hashes = len(raw_prev_hashes) // HASH_LENGTH
+            for hash_index in range(num_previous_hashes):
+                raw_hash = raw_prev_hashes[hash_index * HASH_LENGTH:hash_index * HASH_LENGTH + HASH_LENGTH]
+                self.previous_hash_set.append((prev_seq_nums[hash_index], raw_hash))
+
         self.hash = self.calculate_hash()
         self.crypto = default_eccrypto
         self._logger = logging.getLogger(self.__class__.__name__)
+
+    @classmethod
+    def get_prev_blocks(cls, public_key, sequence_number, num_pointers):
+        # Determine the seed for the randomness
+        random_seed = int(hexlify(sha256(public_key + b"%d" % sequence_number).digest()), 16)
+        rand = random.Random(random_seed)
+        seq_nums = []
+        num_pointers = min(num_pointers, sequence_number - 1)
+        for _ in range(num_pointers):
+            rand_seq_num = rand.randint(1, sequence_number - 1)
+            while rand_seq_num in seq_nums:
+                rand_seq_num = rand.randint(1, sequence_number - 1)
+            seq_nums.append(rand_seq_num)
+
+        seq_nums.sort()
+        return seq_nums
 
     @classmethod
     def from_payload(cls, payload, serializer):
@@ -142,7 +171,7 @@ class TrustChainBlock(object):
         """
         return cls([payload.type, payload.transaction, payload.public_key, payload.sequence_number,
                     payload.link_public_key, payload.link_sequence_number, payload.link_hash, payload.previous_hash,
-                    payload.signature, payload.timestamp, time.time()], serializer)
+                    payload.previous_hash_set, payload.signature, payload.timestamp, time.time()], serializer)
 
     @classmethod
     def from_pair_payload(cls, payload, serializer):
@@ -152,21 +181,22 @@ class TrustChainBlock(object):
         """
         block1 = cls([payload.type1, payload.transaction1, payload.public_key1, payload.sequence_number1,
                       payload.link_public_key1, payload.link_sequence_number1, payload.link_hash1, payload.previous_hash1,
-                      payload.signature1, payload.timestamp1, time.time()], serializer)
+                      payload.previous_hash_set1, payload.signature1, payload.timestamp1, time.time()], serializer)
         block2 = cls([payload.type2, payload.transaction2, payload.public_key2, payload.sequence_number2,
                       payload.link_public_key2, payload.link_sequence_number2, payload.link_hash2, payload.previous_hash2,
-                      payload.signature2, payload.timestamp2, time.time()], serializer)
+                      payload.previous_hash_set2, payload.signature2, payload.timestamp2, time.time()], serializer)
         return block1, block2
 
     def __str__(self):
         # This makes debugging and logging easier
-        return "Block {0} from ...{1}:{2} links ...{3}:{4} h:{5} for {6} type {7}".format(
+        return "Block {0} from ...{1}:{2} links ...{3}:{4} h:{5} plinks:{6} for {7} type {8}".format(
             hexlify(self.hash)[-8:],
             hexlify(self.public_key)[-8:],
             self.sequence_number,
             hexlify(self.link_public_key)[-8:],
             self.link_sequence_number,
             self.link_hash,
+            len(self.previous_hash_set),
             self.transaction,
             self.type)
 
@@ -200,14 +230,19 @@ class TrustChainBlock(object):
         """
         return int(hexlify(self.hash), 16) % 100000000
 
+    def serialized_previous_hash_set(self):
+        serialized = b"".join([block_hash for _, block_hash in self.previous_hash_set])
+        return serialized
+
     def pack(self, signature=True):
         """
         Encode this block for transport
         :param signature: False to pack EMPTY_SIG in the signature location, true to pack the signature field
         :return: the database_blob the data was packed into
         """
+        previous_hashes = self.serialized_previous_hash_set()
         args = [self.public_key, self.sequence_number, self.link_public_key, self.link_sequence_number, self.link_hash,
-                self.previous_hash, self.signature if signature else EMPTY_SIG, self.type, self._transaction,
+                self.previous_hash, previous_hashes, self.signature if signature else EMPTY_SIG, self.type, self._transaction,
                 self.timestamp]
         return self.serializer.pack_multiple(HalfBlockPayload(*args).to_pack_list())[0]
 
@@ -247,7 +282,7 @@ class TrustChainBlock(object):
         self.update_linked_consistency(database, link, result)
 
         # Check if the chain of blocks is properly hooked up.
-        self.update_chain_consistency(prev_blk, next_blk, result)
+        self.update_chain_consistency(database, prev_blk, next_blk, result)
 
         return result
 
@@ -396,7 +431,7 @@ class TrustChainBlock(object):
             result.inconsistent_blocks.add(self)
             result.inconsistent_blocks.add(linked_prev)
 
-    def update_chain_consistency(self, prev_blk, next_blk, result):
+    def update_chain_consistency(self, database, prev_blk, next_blk, result):
         """
         Check for chain order consistency.
 
@@ -433,6 +468,16 @@ class TrustChainBlock(object):
                 result.err("Next hash is not equal to the hash id of the block")
                 # Again, this might not be fraud, but fixing it can only result in fraud.
                 self.write_fraud_time(self.public_key)
+
+        # Check the previous hashes
+        for prev_seq_num, prev_hash in self.previous_hash_set:
+            if (self.public_key, prev_seq_num) in database.hash_map:
+                blk_hash = database.hash_map[(self.public_key, prev_seq_num)]
+                if prev_hash != blk_hash:
+                    result.err("One of the previous hashes (sq %d) does not align" % prev_seq_num)
+                    self.write_fraud_time(self.public_key)
+            else:
+                database.hash_map[(self.public_key, prev_seq_num)] = prev_hash
 
     def sign(self, key):
         """
@@ -485,6 +530,12 @@ class TrustChainBlock(object):
             ret.sequence_number = blk.sequence_number + 1
             ret.previous_hash = blk.hash
 
+            # Set the right previous hashes
+            prev_seq_nums = TrustChainBlock.get_prev_blocks(public_key, ret.sequence_number, 10)
+            for prev_seq_num in prev_seq_nums:
+                prev_blk = database.get(public_key, prev_seq_num)
+                ret.previous_hash_set.append((prev_seq_num, prev_blk.hash))
+
         ret._transaction = json.dumps(ret.transaction)
         ret.public_key = public_key
         ret.signature = EMPTY_SIG
@@ -498,7 +549,7 @@ class TrustChainBlock(object):
         """
         return (self.type, database_blob(self._transaction), database_blob(self.public_key),
                 self.sequence_number, database_blob(self.link_public_key), self.link_sequence_number, self.link_hash,
-                database_blob(self.previous_hash), database_blob(self.signature), self.timestamp,
+                database_blob(self.previous_hash), database_blob(self.serialized_previous_hash_set()), database_blob(self.signature), self.timestamp,
                 database_blob(self.hash))
 
     def __iter__(self):

@@ -254,12 +254,15 @@ class TrustChainCommunity(Community):
         self.logger.info("Signed block to %s (%s) validation result %s",
                          hexlify(block.link_public_key)[-8:], block, validation)
         if validation.state != ValidationResult.valid:
-            self.logger.error("Signed block did not validate?! Result %s", repr(validation))
+            self.logger.error("Signed block did not validate?! Result %s", validation.errors)
             return fail(RuntimeError("Signed block did not validate."))
 
         if not self.persistence.contains(block):
             self.persistence.add_block(block)
             self.notify_listeners(block)
+
+        if (block.public_key, block.sequence_number) not in self.persistence.hash_map:
+            self.persistence.hash_map[(block.public_key, block.sequence_number)] = block.hash
 
         # This is a source block with no counterparty
         if not peer and public_key == ANY_COUNTERPARTY_PK:
@@ -374,6 +377,9 @@ class TrustChainCommunity(Community):
         elif not self.persistence.contains(block):
             self.persistence.add_block(block)
             self.notify_listeners(block)
+
+        if (block.public_key, block.sequence_number) not in self.persistence.hash_map:
+            self.persistence.hash_map[(block.public_key, block.sequence_number)] = block.hash
 
         return validation
 

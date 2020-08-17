@@ -614,3 +614,14 @@ class TestTrustChainCommunity(TestBase):
         my_pubkey = self.nodes[2].my_peer.public_key.key_to_bin()
         self.nodes[2].overlay.send_crawl_request(self.nodes[0].my_peer, my_pubkey, 1, 1)
         await self.deliver_messages()
+
+    async def test_create_multiple_blocks(self):
+        """
+        Test creating multiple blocks
+        """
+        his_pubkey = list(self.nodes[0].network.verified_peers)[0].public_key.key_to_bin()
+        for _ in range(0, 20):
+            blocks = await self.nodes[0].overlay.sign_block(list(self.nodes[0].network.verified_peers)[0],
+                                                            public_key=his_pubkey, block_type=b'test', transaction={})
+
+        await self.deliver_messages()

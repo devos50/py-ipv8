@@ -27,7 +27,7 @@ class TestBlock(TrustChainBlock):
         if previous:
             self.key = previous.key
             TrustChainBlock.__init__(self, (block_type, json.dumps(transaction), previous.public_key,
-                                            previous.sequence_number + 1, link_pk, link_seq, EMPTY_HASH, previous.hash,
+                                            previous.sequence_number + 1, link_pk, link_seq, EMPTY_HASH, previous.hash, b"",
                                             EMPTY_SIG, 0, 0))
         else:
             if key:
@@ -38,7 +38,7 @@ class TestBlock(TrustChainBlock):
             TrustChainBlock.__init__(self, (block_type,
                                             json.dumps(transaction), self.key.pub().key_to_bin(), 1,
                                             link_pk, link_seq, EMPTY_HASH,
-                                            GENESIS_HASH,
+                                            GENESIS_HASH, b"",
                                             EMPTY_SIG, 0, 0))
         self.sign(self.key)
 

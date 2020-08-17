@@ -36,6 +36,7 @@ class TrustChainDB(Database):
         self.db_name = db_name
         self.kill_callback = None
         self.block_types = {}
+        self.hash_map = {}  # Map (public_key, seq_num) -> hash
         self.my_blocks_cache = None
         if my_pk:
             self.my_pk = my_pk
@@ -59,7 +60,7 @@ class TrustChainDB(Database):
         """
         self.execute(
             u"INSERT INTO blocks (type, tx, public_key, sequence_number, link_public_key,"
-            u"link_sequence_number, link_hash, previous_hash, signature, block_timestamp, block_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            u"link_sequence_number, link_hash, previous_hash, previous_hashes, signature, block_timestamp, block_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
             block.pack_db_insert())
         self.commit()
 
@@ -363,7 +364,7 @@ class TrustChainDB(Database):
         Return the first part of a generic sql select query.
         """
         _columns = u"type, tx, public_key, sequence_number, link_public_key, link_sequence_number, link_hash," \
-                   u"previous_hash, signature, block_timestamp, insert_time"
+                   u"previous_hash, previous_hashes, signature, block_timestamp, insert_time"
         return u"SELECT " + _columns + u" FROM blocks "
 
     def get_sql_create_blocks_table(self, table_name, primary_key):
@@ -377,6 +378,7 @@ class TrustChainDB(Database):
          link_sequence_number INTEGER NOT NULL,
          link_hash  	      TEXT NOT NULL,
          previous_hash	      TEXT NOT NULL,
+         previous_hashes	  TEXT NOT NULL,
          signature		      TEXT NOT NULL,
          block_timestamp      BIGINT NOT NULL,
          insert_time          TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
