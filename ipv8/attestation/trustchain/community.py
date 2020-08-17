@@ -263,6 +263,11 @@ class TrustChainCommunity(Community):
 
         if (block.public_key, block.sequence_number) not in self.persistence.hash_map:
             self.persistence.hash_map[(block.public_key, block.sequence_number)] = block.hash
+            if block.sequence_number > 1:
+                self.persistence.hash_map[(block.public_key, block.sequence_number - 1)] = block.previous_hash
+
+        if block.link_sequence_number != UNKNOWN_SEQ:
+            self.persistence.hash_map[block.link_public_key, block.link_sequence_number] = block.link_hash
 
         # This is a source block with no counterparty
         if not peer and public_key == ANY_COUNTERPARTY_PK:
@@ -380,6 +385,11 @@ class TrustChainCommunity(Community):
 
         if (block.public_key, block.sequence_number) not in self.persistence.hash_map:
             self.persistence.hash_map[(block.public_key, block.sequence_number)] = block.hash
+            if block.sequence_number > 1:
+                self.persistence.hash_map[(block.public_key, block.sequence_number - 1)] = block.previous_hash
+
+        if block.link_sequence_number != UNKNOWN_SEQ:
+            self.persistence.hash_map[block.link_public_key, block.link_sequence_number] = block.link_hash
 
         return validation
 
