@@ -366,7 +366,10 @@ class TrustChainCommunity(Community):
         elif not linked:
             # We keep track of this outstanding sign request.
             sign_future = Future()
-            self.request_cache.add(HalfBlockSignCache(self, block, sign_future, peer.address))
+            try:
+                self.request_cache.add(HalfBlockSignCache(self, block, sign_future, peer.address))
+            except RuntimeError:
+                pass  # We ignore this one deliberately
             return sign_future
         else:
             # We return a future that fires immediately with both half blocks.
