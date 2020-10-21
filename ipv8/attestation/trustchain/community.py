@@ -4,6 +4,7 @@ This reputation system builds a tamper proof interaction history contained in a 
 Every node has a chain and these chains intertwine by blocks shared by chains.
 """
 import logging
+import os
 import random
 import struct
 from asyncio import Future, ensure_future, get_event_loop
@@ -12,6 +13,7 @@ from collections import deque
 from functools import wraps
 from threading import RLock
 
+from chainsim.logger import setup_logger
 from .block import ANY_COUNTERPARTY_PK, EMPTY_PK, GENESIS_SEQ, TrustChainBlock, UNKNOWN_SEQ, ValidationResult
 from .caches import ChainCrawlCache, CrawlRequestCache, HalfBlockSignCache, IntroCrawlTimeout
 from .database import TrustChainDB
@@ -52,13 +54,15 @@ class TrustChainCommunity(Community):
     def __init__(self, *args, **kwargs):
         working_directory = kwargs.pop('working_directory', '')
         self.persistence = kwargs.pop('persistence', None)
+        self.env = kwargs.pop('env', None)
         db_name = kwargs.pop('db_name', self.DB_NAME)
         self.settings = kwargs.pop('settings', TrustChainSettings())
         self.receive_block_lock = RLock()
 
         super(TrustChainCommunity, self).__init__(*args, **kwargs)
         self.request_cache = RequestCache()
-        self.logger = logging.getLogger(self.__class__.__name__)
+        log_file = os.path.join("logs", "%s.log" % hexlify(self.my_peer.public_key.key_to_bin()).decode()[-8:])
+        self.logger = setup_logger(self.__class__.__name__, log_file)
 
         if not self.persistence:
             self.persistence = self.DB_CLASS(working_directory, db_name, self.my_peer.public_key.key_to_bin())
@@ -70,6 +74,8 @@ class TrustChainCommunity(Community):
         self.listeners_map = {}  # Map of block_type -> [callbacks]
         self.register_task("db_cleanup", self.do_db_cleanup, interval=600)
 
+        self.did_double_spend = False
+
         self.add_message_handler(HalfBlockPayload, self.received_half_block)
         self.add_message_handler(CrawlRequestPayload, self.received_crawl_request)
         self.add_message_handler(CrawlResponsePayload, self.received_crawl_response)
@@ -79,6 +85,75 @@ class TrustChainCommunity(Community):
         self.add_message_handler(EmptyCrawlResponsePayload, self.received_empty_crawl_response)
         self.add_message_handler(InconsistencyPairPayload, self.received_two_inconsistent_blocks)
         self.add_message_handler(InconsistencyTripletPayload, self.received_three_inconsistent_blocks)
+
+    def start_crawling(self):
+        if not self.env:
+            return
+
+        yield self.env.timeout(random.random() * 1000)
+
+        peers = self.get_peers()
+
+        while True:
+            if not peers:
+                self.logger.info("No peers found for crawling!")
+                return
+
+            peer = random.choice(self.get_peers())
+            self.send_crawl_request(peer, peer.public_key.key_to_bin(), -1, -1)
+
+            yield self.env.timeout(1000)
+
+    def received_latest_blocks(self, peer, blocks, from_range, to_range):
+        if not blocks or not (from_range == -1 and to_range == -1):
+            return
+
+        for block in blocks:
+            if block.public_key == peer.public_key.key_to_bin():
+                # Select random numbers
+                if block and block.sequence_number > 1:
+                    start_seq = random.randint(1, block.sequence_number - 1)
+                else:
+                    start_seq = 1
+
+                crawl_batch_size = 10  # TODO hard-coded
+                end_seq = start_seq + crawl_batch_size
+                self.send_crawl_request(peer, peer.public_key.key_to_bin(), start_seq, end_seq)
+                self.logger.info("Crawling peer %s (%d - %d)", peer, start_seq, end_seq)
+
+    def create_random_interactions(self):
+        if not self.env:
+            return
+
+        yield self.env.timeout(random.random() * 1000)
+
+        peers = self.get_peers()
+
+        while True:
+            if not peers:
+                self.logger.info("No peers found for crawling!")
+                return
+
+            double_spend = False
+            latest_block = self.persistence.get_latest(self.my_peer.public_key.key_to_bin())
+            if random.random() <= 0.1 and not self.did_double_spend and latest_block and latest_block.sequence_number > 1:
+                self.did_double_spend = True
+                import chainsim.globals as global_vars
+                global_vars.peers_committed_fraud += 1
+                double_spend = True
+
+                with open("data/fraud_time.txt", "a") as out:
+                    hex_pk = hexlify(self.my_peer.public_key.key_to_bin()).decode()
+                    out.write("%s,%d\n" % (hex_pk, self.env.now))
+
+            peer = random.choice(peers)
+            # Make sure that we double spend with another peer
+            while latest_block and (peer.public_key.key_to_bin() == latest_block.public_key or peer.public_key.key_to_bin() == latest_block.link_public_key):
+                peer = random.choice(peers)
+
+            self.sign_block(peer, peer.public_key.key_to_bin(), block_type=b'test', transaction={}, double_spend=double_spend)
+
+            yield self.env.timeout(1000)
 
     def do_db_cleanup(self):
         """
@@ -302,14 +377,14 @@ class TrustChainCommunity(Community):
 
     @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockPayload)
-    async def received_half_block(self, source_address, dist, payload):
+    def received_half_block(self, source_address, dist, payload):
         """
         We've received a half block, either because we sent a SIGNED message to some one or we are crawling
         """
         peer = Peer(payload.public_key, source_address)
         block = self.get_block_class(payload.type).from_payload(payload, self.serializer)
         try:
-            await self.process_half_block(block, peer)
+            self.process_half_block(block, peer)
         except RuntimeError as e:
             self.logger.info("Failed to process half block (error %s)", e)
 
@@ -430,7 +505,7 @@ class TrustChainCommunity(Community):
             listener.received_block(block)
 
     @synchronized
-    async def process_half_block(self, blk, peer):
+    def process_half_block(self, blk, peer):
         """
         Process a received half block.
         """
@@ -457,7 +532,7 @@ class TrustChainCommunity(Community):
         self.logger.info("Received request block addressed to us (%s)", blk)
 
         try:
-            should_sign = await maybe_coroutine(self.should_sign, blk)
+            should_sign = True
         except Exception as e:
             self.logger.error("Error while determining whether to sign (error: %s)", e)
             return
@@ -466,27 +541,7 @@ class TrustChainCommunity(Community):
             self.logger.info("Not signing block %s", blk)
             return
 
-        # It is important that the request matches up with its previous block, gaps cannot be tolerated at
-        # this point. We already dropped invalids, so here we delay this message if the result is partial,
-        # partial_previous or no-info. We send a crawl request to the requester to (hopefully) close the gap
-        prev_blk = self.persistence.get(blk.public_key, blk.sequence_number - 1)
-        if not prev_blk and blk.sequence_number > 1 and self.settings.validation_range > 0:
-            self.logger.info("Request block could not be validated sufficiently, crawling requester. %s", validation)
-            # Note that this code does not cover the scenario where we obtain this block indirectly.
-            if not self.request_cache.has("crawl", blk.hash_number):
-                try:
-                    await self.send_crawl_request(peer,
-                                                  blk.public_key,
-                                                  max(GENESIS_SEQ, (blk.sequence_number
-                                                                    - self.settings.validation_range)),
-                                                  max(GENESIS_SEQ, blk.sequence_number - 1),
-                                                  for_half_block=blk)
-                except Exception as e:
-                    self.logger.error("Error while sending crawl request (error: %s)", e)
-                    return
-                return await self.process_half_block(blk, peer)
-        else:
-            return await self.sign_block(peer, linked=blk)
+        self.sign_block(peer, linked=blk)
 
     def crawl_chain(self, peer, latest_block_num=0):
         """
@@ -519,8 +574,7 @@ class TrustChainCommunity(Community):
         """
         crawl_id = for_half_block.hash_number if for_half_block else \
             RandomNumberCache.find_unclaimed_identifier(self.request_cache, "crawl")
-        crawl_future = Future()
-        self.request_cache.add(CrawlRequestCache(self, crawl_id, crawl_future))
+        self.request_cache.add(CrawlRequestCache(self, crawl_id, peer, start_seq_num, end_seq_num))
         self.logger.info("Requesting crawl of node %s (blocks %d to %d) with id %d",
                          hexlify(peer.public_key.key_to_bin())[-8:], start_seq_num, end_seq_num, crawl_id)
 
@@ -531,8 +585,6 @@ class TrustChainCommunity(Community):
 
         packet = self._ez_pack(self._prefix, 2, [auth, dist, payload])
         self.endpoint.send(peer.address, packet)
-
-        return crawl_future
 
     @task
     async def perform_partial_chain_crawl(self, cache, start, stop):
@@ -684,14 +736,6 @@ class TrustChainCommunity(Community):
     def send_crawl_response(self, block, crawl_id, index, total_count, peer):
         self.logger.debug("Sending block for crawl request to %s (%s)", peer, block)
 
-        # Don't answer with any invalid blocks.
-        # validation = self.validate_persist_block(block)
-        # if validation.state == ValidationResult.invalid and total_count > 0:
-        #     # We send an empty block to the crawl requester if no blocks should be sent back
-        #     self.logger.error("Not sending crawl response, the block is invalid. Result %s", repr(validation))
-        #     self.persistence_integrity_check()
-        #     return
-
         global_time = self.claim_global_time()
         block_payload = HalfBlockPayload.from_half_block(block)
         payload = CrawlResponsePayload(block_payload, crawl_id, index, total_count).to_pack_list()
@@ -702,11 +746,11 @@ class TrustChainCommunity(Community):
 
     @synchronized
     @lazy_wrapper_unsigned_wd(GlobalTimeDistributionPayload, CrawlResponsePayload)
-    async def received_crawl_response(self, source_address, dist, payload, data):
+    def received_crawl_response(self, source_address, dist, payload, data):
         peer = Peer(payload.block.public_key, source_address)
         block = self.get_block_class(payload.block.type).from_payload(payload.block, self.serializer)
         try:
-            await self.process_half_block(block, peer)
+            self.process_half_block(block, peer)
         except RuntimeError as e:
             self.logger.info("Failed to process half block (error %s)", e)
 

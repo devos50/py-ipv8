@@ -117,13 +117,15 @@ class CrawlRequestCache(NumberCache):
     """
     CRAWL_TIMEOUT = 20.0
 
-    def __init__(self, community, crawl_id, crawl_future):
+    def __init__(self, community, crawl_id, peer, start_seq_num, end_seq_num):
         super(CrawlRequestCache, self).__init__(community.request_cache, u"crawl", crawl_id)
         self.logger = logging.getLogger(self.__class__.__name__)
         self.community = community
-        self.crawl_future = crawl_future
+        self.peer = peer
         self.received_half_blocks = []
         self.total_half_blocks_expected = maximum_integer
+        self.start_seq_num = start_seq_num
+        self.end_seq_num = end_seq_num
 
     @property
     def timeout_delay(self):
@@ -135,15 +137,15 @@ class CrawlRequestCache(NumberCache):
 
         if self.total_half_blocks_expected == 0:
             self.community.request_cache.pop(u"crawl", self.number)
-            get_event_loop().call_soon_threadsafe(self.crawl_future.set_result, [])
+            self.community.received_latest_blocks(self.peer, [], self.start_seq_num, self.end_seq_num)
         elif len(self.received_half_blocks) >= self.total_half_blocks_expected:
             self.community.request_cache.pop(u"crawl", self.number)
-            get_event_loop().call_soon_threadsafe(self.crawl_future.set_result, self.received_half_blocks)
+            self.community.received_latest_blocks(self.peer, self.received_half_blocks, self.start_seq_num, self.end_seq_num)
 
     def received_empty_response(self):
         self.community.request_cache.pop(u"crawl", self.number)
-        get_event_loop().call_soon_threadsafe(self.crawl_future.set_result, self.received_half_blocks)
+        self.community.received_latest_blocks(self.peer, [], self.start_seq_num, self.end_seq_num)
 
     def on_timeout(self):
         self._logger.info("Timeout for crawl with id %d", self.number)
-        self.crawl_future.set_result(self.received_half_blocks)
+        self.community.received_latest_blocks(self.peer, self.received_half_blocks, self.start_seq_num, self.end_seq_num)

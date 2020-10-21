@@ -213,7 +213,7 @@ class TrustChainBlock(object):
 
     @property
     def block_id(self):
-        return b"%s.%d" % (hexlify(self.public_key), self.sequence_number)
+        return b"%s.%s.%d" % (hexlify(self.public_key), hexlify(self.link_public_key), self.sequence_number)
 
     @property
     def linked_block_id(self):
@@ -311,23 +311,23 @@ class TrustChainBlock(object):
             result.err("Link sequence number not empty and is prior to genesis")
         if self.timestamp < 0:
             result.err("Timestamp cannot be negative")
-        if not self.crypto.is_valid_public_bin(self.public_key):
-            result.err("Public key is not valid")
-        else:
-            # If the public key is valid, we can use it to check the signature. We want just a yes/no answer here, and
-            # we want to keep checking for more errors, so just catch all packing exceptions and err() if any happen.
-            try:
-                pck = self.pack(signature=False)
-            except PackError as e:
-                self._logger.debug("Failed to pack 'self.pack' (error %s)", e)
-                pck = None
-            if pck is None or not self.crypto.is_valid_signature(
-                    self.crypto.key_from_public_bin(self.public_key), pck, self.signature):
-                result.err("Invalid signature")
-        if not self.crypto.is_valid_public_bin(self.link_public_key) and \
-                self.link_public_key != ANY_COUNTERPARTY_PK and \
-                self.link_public_key != EMPTY_PK:
-            result.err("Linked public key is not valid")
+        # if not self.crypto.is_valid_public_bin(self.public_key):
+        #     result.err("Public key is not valid")
+        # else:
+        #     # If the public key is valid, we can use it to check the signature. We want just a yes/no answer here, and
+        #     # we want to keep checking for more errors, so just catch all packing exceptions and err() if any happen.
+        #     try:
+        #         pck = self.pack(signature=False)
+        #     except PackError as e:
+        #         self._logger.debug("Failed to pack 'self.pack' (error %s)", e)
+        #         pck = None
+        #     if pck is None or not self.crypto.is_valid_signature(
+        #             self.crypto.key_from_public_bin(self.public_key), pck, self.signature):
+        #         result.err("Invalid signature")
+        # if not self.crypto.is_valid_public_bin(self.link_public_key) and \
+        #         self.link_public_key != ANY_COUNTERPARTY_PK and \
+        #         self.link_public_key != EMPTY_PK:
+        #     result.err("Linked public key is not valid")
         if self.public_key == self.link_public_key:
             # Blocks to self serve no purpose and are thus invalid.
             result.err("Self signed block")
@@ -365,7 +365,7 @@ class TrustChainBlock(object):
                 result.err("Double sign fraud")
                 database.add_double_spend(blk, self)
                 result.did_double_spend = True
-                self.write_fraud_time(blk.public_key)
+                self.write_fraud_time(blk.public_key, database.env)
 
     def update_linked_consistency(self, database, link, result):
         """
@@ -459,7 +459,7 @@ class TrustChainBlock(object):
                 result.did_double_spend = True
                 # Is this fraud? It is certainly an error, but fixing it would require a different signature on the same
                 # sequence number which is fraud.
-                self.write_fraud_time(self.public_key)
+                self.write_fraud_time(self.public_key, database.env)
 
         if next_blk:
             if next_blk.public_key != self.public_key:
@@ -470,14 +470,14 @@ class TrustChainBlock(object):
                 result.err("Next hash is not equal to the hash id of the block")
                 result.did_double_spend = True
                 # Again, this might not be fraud, but fixing it can only result in fraud.
-                self.write_fraud_time(self.public_key)
+                self.write_fraud_time(self.public_key, database.env)
 
         if (self.public_key, self.sequence_number - 1) in database.hash_map:
             prev_hash = database.hash_map[(self.public_key, self.sequence_number - 1)]
             if prev_hash != self.previous_hash:
                 result.err("The previous hash does not align")
                 result.did_double_spend = True
-                self.write_fraud_time(self.public_key)
+                self.write_fraud_time(self.public_key, database.env)
 
         # Check the previous hashes
         for prev_seq_num, prev_hash in self.previous_hash_set:
@@ -486,7 +486,7 @@ class TrustChainBlock(object):
                 if prev_hash != blk_hash:
                     result.err("One of the previous hashes (sq %d) does not align" % prev_seq_num)
                     result.did_double_spend = True
-                    self.write_fraud_time(self.public_key)
+                    self.write_fraud_time(self.public_key, database.env)
             else:
                 database.hash_map[(self.public_key, prev_seq_num)] = prev_hash
 
@@ -578,10 +578,13 @@ class TrustChainBlock(object):
             else:
                 yield key, value.decode('utf-8') if isinstance(value, bytes) else value
 
-    def write_fraud_time(self, public_key):
-        with open("detection_time.txt", "a") as out:
-            hex_pk = hexlify(public_key).decode()
-            out.write("%s,%d\n" % (hex_pk, int(round(time.time() * 1000))))
+    def write_fraud_time(self, public_key, env):
+        import chainsim.globals as global_vars
+        if public_key not in global_vars.exposed_peers:
+            global_vars.exposed_peers.add(public_key)
+            with open("data/detection_time.txt", "a") as out:
+                hex_pk = hexlify(public_key).decode()
+                out.write("%s,%d\n" % (hex_pk, env.now))
 
 
 class ValidationResult(object):
