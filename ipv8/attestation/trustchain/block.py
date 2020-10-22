@@ -1,4 +1,5 @@
 import logging
+import os
 import random
 import time
 from binascii import hexlify
@@ -88,7 +89,7 @@ class TrustChainBlock(object):
         *> type:* int or None
     """
 
-    def __init__(self, data=None, serializer=default_serializer):
+    def __init__(self, data=None, serializer=default_serializer, back_pointers=10):
         """
         Create a new TrustChainBlock or load a TrustChainBlock from an existing database entry.
 
@@ -137,7 +138,7 @@ class TrustChainBlock(object):
 
             # Parse the previous hashes
             self.previous_hash_set = []
-            prev_seq_nums = TrustChainBlock.get_prev_blocks(self.public_key, self.sequence_number, 10)
+            prev_seq_nums = TrustChainBlock.get_prev_blocks(self.public_key, self.sequence_number, back_pointers)
             num_previous_hashes = len(raw_prev_hashes) // HASH_LENGTH
             for hash_index in range(num_previous_hashes):
                 raw_hash = raw_prev_hashes[hash_index * HASH_LENGTH:hash_index * HASH_LENGTH + HASH_LENGTH]
@@ -164,27 +165,27 @@ class TrustChainBlock(object):
         return seq_nums
 
     @classmethod
-    def from_payload(cls, payload, serializer):
+    def from_payload(cls, payload, serializer, back_pointers):
         """
         Create a block according to a given payload and serializer.
         This method can be used when receiving a block from the network.
         """
         return cls([payload.type, payload.transaction, payload.public_key, payload.sequence_number,
                     payload.link_public_key, payload.link_sequence_number, payload.link_hash, payload.previous_hash,
-                    payload.previous_hash_set, payload.signature, payload.timestamp, time.time()], serializer)
+                    payload.previous_hash_set, payload.signature, payload.timestamp, time.time()], serializer, back_pointers)
 
     @classmethod
-    def from_pair_payload(cls, payload, serializer):
+    def from_pair_payload(cls, payload, serializer, back_pointers):
         """
         Create two half blocks from a block pair message, according to a given payload and serializer.
         Used to construct two blocks when receiving a block pair from the network.
         """
         block1 = cls([payload.type1, payload.transaction1, payload.public_key1, payload.sequence_number1,
                       payload.link_public_key1, payload.link_sequence_number1, payload.link_hash1, payload.previous_hash1,
-                      payload.previous_hash_set1, payload.signature1, payload.timestamp1, time.time()], serializer)
+                      payload.previous_hash_set1, payload.signature1, payload.timestamp1, time.time()], serializer, back_pointers)
         block2 = cls([payload.type2, payload.transaction2, payload.public_key2, payload.sequence_number2,
                       payload.link_public_key2, payload.link_sequence_number2, payload.link_hash2, payload.previous_hash2,
-                      payload.previous_hash_set2, payload.signature2, payload.timestamp2, time.time()], serializer)
+                      payload.previous_hash_set2, payload.signature2, payload.timestamp2, time.time()], serializer, back_pointers)
         return block1, block2
 
     def __str__(self):
@@ -254,7 +255,7 @@ class TrustChainBlock(object):
         """
         return ValidationResult.valid, []
 
-    def validate(self, database):
+    def validate(self, database, data_dir):
         """
         Validates this block against what is known in the database
         :param database: the database to check against
@@ -276,13 +277,13 @@ class TrustChainBlock(object):
         self.update_block_invariant(database, result)
 
         # Check if this block as retrieved from our database is the same as this block.
-        self.update_block_consistency(blk, result, database)
+        self.update_block_consistency(blk, result, database, data_dir)
 
         # Check if the linked block as retrieved from our database is the same as the one linked by this block.
         self.update_linked_consistency(database, link, result)
 
         # Check if the chain of blocks is properly hooked up.
-        self.update_chain_consistency(database, prev_blk, next_blk, result)
+        self.update_chain_consistency(database, prev_blk, next_blk, result, data_dir)
 
         return result
 
@@ -336,7 +337,7 @@ class TrustChainBlock(object):
         if self.sequence_number != GENESIS_SEQ and self.previous_hash == GENESIS_HASH:
             result.err("Sequence number implies previous hash should not be Genesis ID")
 
-    def update_block_consistency(self, blk, result, database):
+    def update_block_consistency(self, blk, result, database, data_dir):
         """
         Check if a given block is consistent with this block.
 
@@ -365,7 +366,7 @@ class TrustChainBlock(object):
                 result.err("Double sign fraud")
                 database.add_double_spend(blk, self)
                 result.did_double_spend = True
-                self.write_fraud_time(blk.public_key, database.env)
+                self.write_fraud_time(blk.public_key, database.env, data_dir)
 
     def update_linked_consistency(self, database, link, result):
         """
@@ -432,7 +433,7 @@ class TrustChainBlock(object):
             result.inconsistent_blocks.add(self)
             result.inconsistent_blocks.add(linked_prev)
 
-    def update_chain_consistency(self, database, prev_blk, next_blk, result):
+    def update_chain_consistency(self, database, prev_blk, next_blk, result, data_dir):
         """
         Check for chain order consistency.
 
@@ -459,7 +460,7 @@ class TrustChainBlock(object):
                 result.did_double_spend = True
                 # Is this fraud? It is certainly an error, but fixing it would require a different signature on the same
                 # sequence number which is fraud.
-                self.write_fraud_time(self.public_key, database.env)
+                self.write_fraud_time(self.public_key, database.env, data_dir)
 
         if next_blk:
             if next_blk.public_key != self.public_key:
@@ -470,14 +471,14 @@ class TrustChainBlock(object):
                 result.err("Next hash is not equal to the hash id of the block")
                 result.did_double_spend = True
                 # Again, this might not be fraud, but fixing it can only result in fraud.
-                self.write_fraud_time(self.public_key, database.env)
+                self.write_fraud_time(self.public_key, database.env, data_dir)
 
         if (self.public_key, self.sequence_number - 1) in database.hash_map:
             prev_hash = database.hash_map[(self.public_key, self.sequence_number - 1)]
             if prev_hash != self.previous_hash:
                 result.err("The previous hash does not align")
                 result.did_double_spend = True
-                self.write_fraud_time(self.public_key, database.env)
+                self.write_fraud_time(self.public_key, database.env, data_dir)
 
         # Check the previous hashes
         for prev_seq_num, prev_hash in self.previous_hash_set:
@@ -486,7 +487,7 @@ class TrustChainBlock(object):
                 if prev_hash != blk_hash:
                     result.err("One of the previous hashes (sq %d) does not align" % prev_seq_num)
                     result.did_double_spend = True
-                    self.write_fraud_time(self.public_key, database.env)
+                    self.write_fraud_time(self.public_key, database.env, data_dir)
             else:
                 database.hash_map[(self.public_key, prev_seq_num)] = prev_hash
 
@@ -499,7 +500,7 @@ class TrustChainBlock(object):
         self.hash = self.calculate_hash()
 
     @classmethod
-    def create(cls, block_type, transaction, database, public_key, link=None, additional_info=None, link_pk=None, double_spend=False):
+    def create(cls, block_type, transaction, database, public_key, link=None, additional_info=None, link_pk=None, double_spend=False, back_pointers=10):
         """
         Create an empty next block.
         :param block_type: the type of the block to be constructed
@@ -511,6 +512,7 @@ class TrustChainBlock(object):
                transaction when link exists
         :param link_pk: the public key of the counterparty in this transaction
         :param double_spend: whether we double spend.
+        :param back_pointers: The number of backwards pointers.
         :return: A newly created block
         """
         blk = database.get_latest(public_key)
@@ -542,7 +544,7 @@ class TrustChainBlock(object):
             ret.previous_hash = blk.hash
 
             # Set the right previous hashes
-            prev_seq_nums = TrustChainBlock.get_prev_blocks(public_key, ret.sequence_number, 10)
+            prev_seq_nums = TrustChainBlock.get_prev_blocks(public_key, ret.sequence_number, back_pointers)
             for prev_seq_num in prev_seq_nums:
                 prev_blk = database.get(public_key, prev_seq_num)
                 ret.previous_hash_set.append((prev_seq_num, prev_blk.hash))
@@ -578,11 +580,11 @@ class TrustChainBlock(object):
             else:
                 yield key, value.decode('utf-8') if isinstance(value, bytes) else value
 
-    def write_fraud_time(self, public_key, env):
+    def write_fraud_time(self, public_key, env, data_dir):
         import chainsim.globals as global_vars
         if public_key not in global_vars.exposed_peers:
             global_vars.exposed_peers.add(public_key)
-            with open("data/detection_time.txt", "a") as out:
+            with open(os.path.join(data_dir, "detection_time.txt"), "a") as out:
                 hex_pk = hexlify(public_key).decode()
                 out.write("%s,%d\n" % (hex_pk, env.now))
 

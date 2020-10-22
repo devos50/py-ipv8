@@ -36,3 +36,6 @@ class TrustChainSettings(object):
 
         # How many random blocks we send during the crawl
         self.crawl_send_random_blocks = 0
+
+        # Crawl batch size
+        self.crawl_batch_size = 10

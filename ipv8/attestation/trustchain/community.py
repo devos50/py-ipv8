@@ -57,11 +57,16 @@ class TrustChainCommunity(Community):
         self.env = kwargs.pop('env', None)
         db_name = kwargs.pop('db_name', self.DB_NAME)
         self.settings = kwargs.pop('settings', TrustChainSettings())
+        self.data_dir = kwargs.pop('data_dir')
+        self.sim_settings = kwargs.pop('sim_settings')
         self.receive_block_lock = RLock()
 
         super(TrustChainCommunity, self).__init__(*args, **kwargs)
         self.request_cache = RequestCache()
-        log_file = os.path.join("logs", "%s.log" % hexlify(self.my_peer.public_key.key_to_bin()).decode()[-8:])
+
+        logs_dir = os.path.join(self.data_dir, "logs")
+        os.makedirs(logs_dir, exist_ok=True)
+        log_file = os.path.join(logs_dir, "%s.log" % hexlify(self.my_peer.public_key.key_to_bin()).decode()[-8:])
         self.logger = setup_logger(self.__class__.__name__, log_file)
 
         if not self.persistence:
@@ -116,7 +121,7 @@ class TrustChainCommunity(Community):
                 else:
                     start_seq = 1
 
-                crawl_batch_size = 10  # TODO hard-coded
+                crawl_batch_size = self.settings.crawl_batch_size
                 end_seq = start_seq + crawl_batch_size
                 self.send_crawl_request(peer, peer.public_key.key_to_bin(), start_seq, end_seq)
                 self.logger.info("Crawling peer %s (%d - %d)", peer, start_seq, end_seq)
@@ -136,13 +141,13 @@ class TrustChainCommunity(Community):
 
             double_spend = False
             latest_block = self.persistence.get_latest(self.my_peer.public_key.key_to_bin())
-            if random.random() <= 0.1 and not self.did_double_spend and latest_block and latest_block.sequence_number > 1:
+            if random.random() <= self.sim_settings.double_spend_probability and not self.did_double_spend and latest_block and latest_block.sequence_number > 1:
                 self.did_double_spend = True
                 import chainsim.globals as global_vars
                 global_vars.peers_committed_fraud += 1
                 double_spend = True
 
-                with open("data/fraud_time.txt", "a") as out:
+                with open(os.path.join(self.data_dir, "fraud_time.txt"), "a") as out:
                     hex_pk = hexlify(self.my_peer.public_key.key_to_bin()).decode()
                     out.write("%s,%d\n" % (hex_pk, self.env.now))
 
@@ -322,7 +327,8 @@ class TrustChainCommunity(Community):
         block = self.get_block_class(block_type).create(block_type, transaction, self.persistence,
                                                         self.my_peer.public_key.key_to_bin(),
                                                         link=linked, additional_info=additional_info,
-                                                        link_pk=public_key, double_spend=double_spend)
+                                                        link_pk=public_key, double_spend=double_spend,
+                                                        back_pointers=self.sim_settings.back_pointers)
         block.sign(self.my_peer.key)
 
         # validation = block.validate(self.persistence)
@@ -385,7 +391,8 @@ class TrustChainCommunity(Community):
         We've received a half block, either because we sent a SIGNED message to some one or we are crawling
         """
         peer = Peer(payload.public_key, source_address)
-        block = self.get_block_class(payload.type).from_payload(payload, self.serializer)
+        block = self.get_block_class(payload.type).from_payload(payload, self.serializer,
+                                                                self.sim_settings.back_pointers)
         try:
             self.process_half_block(block, peer)
         except RuntimeError as e:
@@ -397,7 +404,8 @@ class TrustChainCommunity(Community):
         """
         We received a half block, part of a broadcast. Disseminate it further.
         """
-        block = self.get_block_class(payload.block.type).from_payload(payload.block, self.serializer)
+        block = self.get_block_class(payload.block.type).from_payload(payload.block, self.serializer,
+                                                                      self.sim_settings.back_pointers)
         self.validate_persist_block(block)
 
         if block.block_id not in self.relayed_broadcasts and payload.ttl > 1:
@@ -409,7 +417,8 @@ class TrustChainCommunity(Community):
         """
         We received a block pair message.
         """
-        block1, block2 = self.get_block_class(payload.type1).from_pair_payload(payload, self.serializer)
+        block1, block2 = self.get_block_class(payload.type1).from_pair_payload(payload, self.serializer,
+                                                                               self.sim_settings.back_pointers)
         self.validate_persist_block(block1)
         self.validate_persist_block(block2)
 
@@ -419,7 +428,8 @@ class TrustChainCommunity(Community):
         """
         We received a half block pair, part of a broadcast. Disseminate it further.
         """
-        block1, block2 = self.get_block_class(payload.type1).from_pair_payload(payload, self.serializer)
+        block1, block2 = self.get_block_class(payload.type1).from_pair_payload(payload, self.serializer,
+                                                                               self.sim_settings.back_pointers)
         self.validate_persist_block(block1)
         self.validate_persist_block(block2)
 
@@ -429,19 +439,24 @@ class TrustChainCommunity(Community):
     @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, InconsistencyPairPayload)
     def received_two_inconsistent_blocks(self, source_address, dist, payload):
-        block1 = self.get_block_class(payload.block1.type).from_payload(payload.block1, self.serializer)
+        block1 = self.get_block_class(payload.block1.type).from_payload(payload.block1, self.serializer,
+                                                                        self.sim_settings.back_pointers)
         self.validate_persist_block(block1, should_share=False)
-        block2 = self.get_block_class(payload.block2.type).from_payload(payload.block2, self.serializer)
+        block2 = self.get_block_class(payload.block2.type).from_payload(payload.block2, self.serializer,
+                                                                        self.sim_settings.back_pointers)
         self.validate_persist_block(block2, should_share=False)
 
     @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, InconsistencyTripletPayload)
     def received_three_inconsistent_blocks(self, source_address, dist, payload):
-        block1 = self.get_block_class(payload.block1.type).from_payload(payload.block1, self.serializer)
+        block1 = self.get_block_class(payload.block1.type).from_payload(payload.block1, self.serializer,
+                                                                        self.sim_settings.back_pointers)
         self.validate_persist_block(block1, should_share=False)
-        block2 = self.get_block_class(payload.block2.type).from_payload(payload.block2, self.serializer)
+        block2 = self.get_block_class(payload.block2.type).from_payload(payload.block2, self.serializer,
+                                                                        self.sim_settings.back_pointers)
         self.validate_persist_block(block2, should_share=False)
-        block3 = self.get_block_class(payload.block3.type).from_payload(payload.block3, self.serializer)
+        block3 = self.get_block_class(payload.block3.type).from_payload(payload.block3, self.serializer,
+                                                                        self.sim_settings.back_pointers)
         self.validate_persist_block(block3, should_share=False)
 
     def validate_persist_block(self, block, should_share=True):
@@ -450,7 +465,7 @@ class TrustChainCommunity(Community):
         :param block: The block to validate and persist.
         :return: [ValidationResult]
         """
-        validation = block.validate(self.persistence)
+        validation = block.validate(self.persistence, self.data_dir)
 
         if validation.is_inconsistent and self.settings.share_inconsistencies and should_share and validation.state == ValidationResult.valid:
             self.broadcast_inconsistencies(validation.inconsistent_blocks)
@@ -751,7 +766,8 @@ class TrustChainCommunity(Community):
     @lazy_wrapper_unsigned_wd(GlobalTimeDistributionPayload, CrawlResponsePayload)
     def received_crawl_response(self, source_address, dist, payload, data):
         peer = Peer(payload.block.public_key, source_address)
-        block = self.get_block_class(payload.block.type).from_payload(payload.block, self.serializer)
+        block = self.get_block_class(payload.block.type).from_payload(payload.block, self.serializer,
+                                                                      self.sim_settings.back_pointers)
         try:
             self.process_half_block(block, peer)
         except RuntimeError as e:
