@@ -95,7 +95,7 @@ class TrustChainCommunity(Community):
         if not self.env:
             return
 
-        yield self.env.timeout(random.random() * 1000)
+        yield self.env.timeout(random.random() * self.sim_settings.crawl_interval * 1000)
 
         peers = self.get_peers()
 
@@ -107,7 +107,7 @@ class TrustChainCommunity(Community):
             peer = random.choice(self.get_peers())
             self.send_crawl_request(peer, peer.public_key.key_to_bin(), -1, -1)
 
-            yield self.env.timeout(1000)
+            yield self.env.timeout(self.sim_settings.crawl_interval * 1000)
 
     def received_latest_blocks(self, peer, blocks, from_range, to_range):
         if not blocks or not (from_range == -1 and to_range == -1):
