@@ -32,7 +32,8 @@ class TrustChainSettings(object):
         self.sign_timeout = 360
 
         # Whether we share inconsistent results
-        self.share_inconsistencies = False
+        self.share_inconsistencies = True
+        self.inconsistency_fanout = 25
 
         # How many random blocks we send during the crawl
         self.crawl_send_random_blocks = 0

@@ -503,7 +503,7 @@ class TrustChainCommunity(Community):
             packet = self._ez_pack(self._prefix, 9, [dist, broadcast_payload], False)
 
         peers = self.get_peers()
-        self.logger.info("Sending %d inconsistent blocks to %d peers!", len(blocks), self.settings.broadcast_fanout)
+        self.logger.info("Sending %d inconsistent blocks to %d peers!", len(blocks), self.settings.inconsistency_fanout)
         for peer in random.sample(peers, min(len(peers), self.settings.broadcast_fanout)):
             self.endpoint.send(peer.address, packet)
 
