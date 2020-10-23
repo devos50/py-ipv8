@@ -210,7 +210,7 @@ class TrustChainBlock(object):
         return self.pack() == other.pack()
 
     def calculate_hash(self):
-        return sha256(self.pack()).digest()
+        return sha256(self.pack(include_hash=False)).digest()
 
     @property
     def block_id(self):
@@ -235,7 +235,7 @@ class TrustChainBlock(object):
         serialized = b"".join([block_hash for _, block_hash in self.previous_hash_set])
         return serialized
 
-    def pack(self, signature=True):
+    def pack(self, signature=True, include_hash=False):
         """
         Encode this block for transport
         :param signature: False to pack EMPTY_SIG in the signature location, true to pack the signature field
@@ -244,7 +244,7 @@ class TrustChainBlock(object):
         previous_hashes = self.serialized_previous_hash_set()
         args = [self.public_key, self.sequence_number, self.link_public_key, self.link_sequence_number, self.link_hash,
                 self.previous_hash, previous_hashes, self.signature if signature else EMPTY_SIG, self.type, self._transaction,
-                self.timestamp]
+                self.timestamp, self.hash if include_hash else EMPTY_HASH]
         return self.serializer.pack_multiple(HalfBlockPayload(*args).to_pack_list())[0]
 
     def validate_transaction(self, database):

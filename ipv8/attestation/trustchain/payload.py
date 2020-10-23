@@ -31,9 +31,9 @@ class HalfBlockPayload(VariablePayload):
     """
 
     msg_id = 1
-    format_list = ['74s', 'I', '74s', 'I', '32s', '32s', 'varlenI', '64s', 'varlenI', 'varlenI', 'Q']
+    format_list = ['74s', 'I', '74s', 'I', '32s', '32s', 'varlenI', '64s', 'varlenI', 'varlenI', 'Q', '32s']
     names = ['public_key', 'sequence_number', 'link_public_key', 'link_sequence_number', 'link_hash', 'previous_hash',
-             'previous_hash_set', 'signature', 'type', 'transaction', 'timestamp']
+             'previous_hash_set', 'signature', 'type', 'transaction', 'timestamp', 'hash']
 
     @classmethod
     def from_half_block(cls, block):
@@ -48,7 +48,8 @@ class HalfBlockPayload(VariablePayload):
             block.signature,
             block.type,
             block._transaction,
-            block.timestamp
+            block.timestamp,
+            block.hash
         )
 
 

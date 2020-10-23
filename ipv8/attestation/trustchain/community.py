@@ -67,7 +67,7 @@ class TrustChainCommunity(Community):
         logs_dir = os.path.join(self.data_dir, "logs")
         os.makedirs(logs_dir, exist_ok=True)
         log_file = os.path.join(logs_dir, "%s.log" % hexlify(self.my_peer.public_key.key_to_bin()).decode()[-8:])
-        self.logger = setup_logger(self.__class__.__name__, log_file)
+        self.logger = logging.getLogger(self.__class__.__name__) #setup_logger(self.__class__.__name__, log_file)
 
         if not self.persistence:
             self.persistence = self.DB_CLASS(working_directory, db_name, self.my_peer.public_key.key_to_bin())
@@ -342,14 +342,6 @@ class TrustChainCommunity(Community):
             self.persistence.add_block(block)
             self.notify_listeners(block)
 
-        if (block.public_key, block.sequence_number) not in self.persistence.hash_map:
-            self.persistence.hash_map[(block.public_key, block.sequence_number)] = block.hash
-            if block.sequence_number > 1:
-                self.persistence.hash_map[(block.public_key, block.sequence_number - 1)] = block.previous_hash
-
-        if block.link_sequence_number != UNKNOWN_SEQ:
-            self.persistence.hash_map[block.link_public_key, block.link_sequence_number] = block.link_hash
-
         # This is a source block with no counterparty
         if not peer and public_key == ANY_COUNTERPARTY_PK:
             if block.type not in self.settings.block_types_bc_disabled and not double_spend:
@@ -391,8 +383,8 @@ class TrustChainCommunity(Community):
         We've received a half block, either because we sent a SIGNED message to some one or we are crawling
         """
         peer = Peer(payload.public_key, source_address)
-        block = self.get_block_class(payload.type).from_payload(payload, self.serializer,
-                                                                self.sim_settings.back_pointers)
+        block = self.persistence.blocks[payload.hash]
+
         try:
             self.process_half_block(block, peer)
         except RuntimeError as e:
@@ -475,14 +467,6 @@ class TrustChainCommunity(Community):
         elif not self.persistence.contains(block):
             self.persistence.add_block(block)
             self.notify_listeners(block)
-
-        if (block.public_key, block.sequence_number) not in self.persistence.hash_map:
-            self.persistence.hash_map[(block.public_key, block.sequence_number)] = block.hash
-            if block.sequence_number > 1:
-                self.persistence.hash_map[(block.public_key, block.sequence_number - 1)] = block.previous_hash
-
-        if block.link_sequence_number != UNKNOWN_SEQ:
-            self.persistence.hash_map[block.link_public_key, block.link_sequence_number] = block.link_hash
 
         return validation
 
@@ -766,8 +750,8 @@ class TrustChainCommunity(Community):
     @lazy_wrapper_unsigned_wd(GlobalTimeDistributionPayload, CrawlResponsePayload)
     def received_crawl_response(self, source_address, dist, payload, data):
         peer = Peer(payload.block.public_key, source_address)
-        block = self.get_block_class(payload.block.type).from_payload(payload.block, self.serializer,
-                                                                      self.sim_settings.back_pointers)
+        block = self.persistence.blocks[payload.block.hash]
+
         try:
             self.process_half_block(block, peer)
         except RuntimeError as e:
