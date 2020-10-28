@@ -10,10 +10,8 @@ import struct
 from asyncio import Future, ensure_future, get_event_loop
 from binascii import hexlify, unhexlify
 from collections import deque
-from functools import wraps
 from threading import RLock
 
-from chainsim.logger import setup_logger
 from .block import ANY_COUNTERPARTY_PK, EMPTY_PK, GENESIS_SEQ, TrustChainBlock, UNKNOWN_SEQ, ValidationResult
 from .caches import ChainCrawlCache, CrawlRequestCache, HalfBlockSignCache, IntroCrawlTimeout
 from .database import TrustChainDB
@@ -26,17 +24,6 @@ from ...peer import Peer
 from ...requestcache import RandomNumberCache, RequestCache
 from ...taskmanager import task
 from ...util import fail, maybe_coroutine, succeed
-
-
-def synchronized(f):
-    """
-    Due to database inconsistencies, we can't allow multiple threads to handle a received_half_block at the same time.
-    """
-    @wraps(f)
-    def wrapper(self, *args, **kwargs):
-        with self.receive_block_lock:
-            return f(self, *args, **kwargs)
-    return wrapper
 
 
 class TrustChainCommunity(Community):
@@ -80,6 +67,7 @@ class TrustChainCommunity(Community):
         self.register_task("db_cleanup", self.do_db_cleanup, interval=600)
 
         self.did_double_spend = False
+        self.all_peers = None
 
         self.add_message_handler(HalfBlockPayload, self.received_half_block)
         self.add_message_handler(CrawlRequestPayload, self.received_crawl_request)
@@ -97,14 +85,10 @@ class TrustChainCommunity(Community):
 
         yield self.env.timeout(random.random() * self.sim_settings.crawl_interval * 1000)
 
-        peers = self.get_peers()
+        self.all_peers = self.get_peers()
 
         while True:
-            if not peers:
-                self.logger.info("No peers found for crawling!")
-                return
-
-            peer = random.choice(self.get_peers())
+            peer = random.choice(self.all_peers)
             self.send_crawl_request(peer, peer.public_key.key_to_bin(), -1, -1)
 
             yield self.env.timeout(self.sim_settings.crawl_interval * 1000)
@@ -130,15 +114,11 @@ class TrustChainCommunity(Community):
         if not self.env:
             return
 
+        self.all_peers = self.get_peers()
+
         yield self.env.timeout(random.random() * 1000)
 
-        peers = self.get_peers()
-
         while True:
-            if not peers:
-                self.logger.info("No peers found for crawling!")
-                return
-
             double_spend = False
             latest_block = self.persistence.get_latest(self.my_peer.public_key.key_to_bin())
             if random.random() <= self.sim_settings.double_spend_probability and not self.did_double_spend and latest_block and latest_block.sequence_number > 1:
@@ -151,10 +131,10 @@ class TrustChainCommunity(Community):
                     hex_pk = hexlify(self.my_peer.public_key.key_to_bin()).decode()
                     out.write("%s,%d\n" % (hex_pk, self.env.now))
 
-            peer = random.choice(peers)
+            peer = random.choice(self.all_peers)
             # Make sure that we double spend with another peer
             while latest_block and (peer.public_key.key_to_bin() == latest_block.public_key or peer.public_key.key_to_bin() == latest_block.link_public_key):
-                peer = random.choice(peers)
+                peer = random.choice(self.all_peers)
 
             self.sign_block(peer, peer.public_key.key_to_bin(), block_type=b'test', transaction={}, double_spend=double_spend)
 
@@ -221,21 +201,16 @@ class TrustChainCommunity(Community):
         """
         Send a block to a specific address, or do a broadcast to known peers if no peer is specified.
         """
-        global_time = self.claim_global_time()
-        dist = GlobalTimeDistributionPayload(global_time).to_pack_list()
         block_payload = HalfBlockPayload.from_half_block(block)
 
         if address:
             self.logger.debug("Sending block to (%s:%d) (%s)", address[0], address[1], block)
-            packet = self._ez_pack(self._prefix, 1, [dist, block_payload.to_pack_list()], False)
-            self.endpoint.send(address, packet)
+            self.endpoint.pass_payload(self.my_peer, address, 1, block_payload)
         else:
             self.logger.debug("Broadcasting block %s", block)
-            broadcast_payload = HalfBlockBroadcastPayload(block_payload, ttl).to_pack_list()
-            packet = self._ez_pack(self._prefix, 5, [dist, broadcast_payload], False)
-            peers = self.get_peers()
-            for peer in random.sample(peers, min(len(peers), self.settings.broadcast_fanout)):
-                self.endpoint.send(peer.address, packet)
+            broadcast_payload = HalfBlockBroadcastPayload(block_payload, ttl)
+            for peer in random.sample(self.all_peers, min(len(self.all_peers), self.settings.broadcast_fanout)):
+                self.endpoint.pass_payload(self.my_peer, peer.address, 5, broadcast_payload)
             self._add_broadcasted_blockid(block.block_id)
 
     def send_block_pair(self, block1, block2, address=None, ttl=1):
@@ -247,16 +222,13 @@ class TrustChainCommunity(Community):
 
         if address:
             self.logger.debug("Sending block pair to (%s:%d) (%s and %s)", address[0], address[1], block1, block2)
-            payload = HalfBlockPairPayload.from_half_blocks(block1, block2).to_pack_list()
-            packet = self._ez_pack(self._prefix, 4, [dist, payload], False)
-            self.endpoint.send(address, packet)
+            payload = HalfBlockPairPayload.from_half_blocks(block1, block2)
+            self.endpoint.pass_payload(self.my_peer, address, 4, payload)
         else:
             self.logger.debug("Broadcasting blocks %s and %s", block1, block2)
-            payload = HalfBlockPairBroadcastPayload.from_half_blocks(block1, block2, ttl).to_pack_list()
-            packet = self._ez_pack(self._prefix, 6, [dist, payload], False)
-            peers = self.get_peers()
-            for peer in random.sample(peers, min(len(peers), self.settings.broadcast_fanout)):
-                self.endpoint.send(peer.address, packet)
+            payload = HalfBlockPairBroadcastPayload.from_half_blocks(block1, block2, ttl)
+            for peer in random.sample(self.all_peers, min(len(self.all_peers), self.settings.broadcast_fanout)):
+                self.endpoint.pass_payload(self.my_peer, peer.address, 6, payload)
             self._add_broadcasted_blockid(block1.block_id)
 
     def self_sign_block(self, block_type=b'unknown', transaction=None):
@@ -288,7 +260,6 @@ class TrustChainCommunity(Community):
         return self.sign_block(self.my_peer, linked=source, public_key=public_key, block_type=block_type,
                                additional_info=additional_info)
 
-    @synchronized
     def sign_block(self, peer, public_key=EMPTY_PK, block_type=b'unknown', transaction=None, linked=None,
                    additional_info=None, double_spend=False):
         """
@@ -376,13 +347,15 @@ class TrustChainCommunity(Community):
 
             return succeed((linked, block))
 
-    @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockPayload)
     def received_half_block(self, source_address, dist, payload):
         """
         We've received a half block, either because we sent a SIGNED message to some one or we are crawling
         """
         peer = Peer(payload.public_key, source_address)
+        self.process_half_block_payload(peer, payload)
+
+    def process_half_block_payload(self, peer, payload):
         block = self.persistence.blocks[payload.hash]
 
         try:
@@ -390,45 +363,51 @@ class TrustChainCommunity(Community):
         except RuntimeError as e:
             self.logger.info("Failed to process half block (error %s)", e)
 
-    @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockBroadcastPayload)
     def received_half_block_broadcast(self, source_address, dist, payload):
         """
         We received a half block, part of a broadcast. Disseminate it further.
         """
-        block = self.get_block_class(payload.block.type).from_payload(payload.block, self.serializer,
-                                                                      self.sim_settings.back_pointers)
+        self.process_half_block_broadcast_payload(payload)
+
+    def process_half_block_broadcast_payload(self, payload):
+        block = self.persistence.blocks[payload.block.hash]
         self.validate_persist_block(block)
 
         if block.block_id not in self.relayed_broadcasts and payload.ttl > 1:
             self.send_block(block, ttl=payload.ttl - 1)
 
-    @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockPairPayload)
     def received_half_block_pair(self, source_address, dist, payload):
         """
         We received a block pair message.
         """
-        block1, block2 = self.get_block_class(payload.type1).from_pair_payload(payload, self.serializer,
-                                                                               self.sim_settings.back_pointers)
+        self.process_half_block_pair_payload(payload)
+
+    def process_half_block_pair_payload(self, payload):
+        block1 = self.persistence.blocks[payload.hash1]
+        block2 = self.persistence.blocks[payload.hash2]
+
         self.validate_persist_block(block1)
         self.validate_persist_block(block2)
 
-    @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockPairBroadcastPayload)
     def received_half_block_pair_broadcast(self, source_address, dist, payload):
         """
         We received a half block pair, part of a broadcast. Disseminate it further.
         """
-        block1, block2 = self.get_block_class(payload.type1).from_pair_payload(payload, self.serializer,
-                                                                               self.sim_settings.back_pointers)
+        self.process_half_block_pair_broadcast_payload(payload)
+
+    def process_half_block_pair_broadcast_payload(self, payload):
+        block1 = self.persistence.blocks[payload.hash1]
+        block2 = self.persistence.blocks[payload.hash2]
+
         self.validate_persist_block(block1)
         self.validate_persist_block(block2)
 
         if block1.block_id not in self.relayed_broadcasts and payload.ttl > 1:
             self.send_block_pair(block1, block2, ttl=payload.ttl - 1)
 
-    @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, InconsistencyPairPayload)
     def received_two_inconsistent_blocks(self, source_address, dist, payload):
         block1 = self.get_block_class(payload.block1.type).from_payload(payload.block1, self.serializer,
@@ -438,7 +417,6 @@ class TrustChainCommunity(Community):
                                                                         self.sim_settings.back_pointers)
         self.validate_persist_block(block2, should_share=False)
 
-    @synchronized
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, InconsistencyTripletPayload)
     def received_three_inconsistent_blocks(self, source_address, dist, payload):
         block1 = self.get_block_class(payload.block1.type).from_payload(payload.block1, self.serializer,
@@ -506,7 +484,6 @@ class TrustChainCommunity(Community):
         for listener in self.listeners_map[block.type]:
             listener.received_block(block)
 
-    @synchronized
     def process_half_block(self, blk, peer):
         """
         Process a received half block.
@@ -580,13 +557,8 @@ class TrustChainCommunity(Community):
         self.logger.info("Requesting crawl of node %s (blocks %d to %d) with id %d",
                          hexlify(peer.public_key.key_to_bin())[-8:], start_seq_num, end_seq_num, crawl_id)
 
-        global_time = self.claim_global_time()
-        auth = BinMemberAuthenticationPayload(self.my_peer.public_key.key_to_bin()).to_pack_list()
-        payload = CrawlRequestPayload(public_key, start_seq_num, end_seq_num, crawl_id).to_pack_list()
-        dist = GlobalTimeDistributionPayload(global_time).to_pack_list()
-
-        packet = self._ez_pack(self._prefix, 2, [auth, dist, payload])
-        self.endpoint.send(peer.address, packet)
+        payload = CrawlRequestPayload(public_key, start_seq_num, end_seq_num, crawl_id)
+        self.endpoint.pass_payload(self.my_peer, peer.address, 2, payload)
 
     @task
     async def perform_partial_chain_crawl(self, cache, start, stop):
@@ -652,11 +624,13 @@ class TrustChainCommunity(Community):
         start, stop = self.persistence.get_lowest_range_unknown(cache.peer.public_key.key_to_bin())
         self.perform_partial_chain_crawl(cache, start, stop)
 
-    @synchronized
     @lazy_wrapper(GlobalTimeDistributionPayload, CrawlRequestPayload)
     def received_crawl_request(self, peer, dist, payload):
         self.logger.info("Received crawl request from node %s for range %d-%d",
                          hexlify(peer.public_key.key_to_bin())[-8:], payload.start_seq_num, payload.end_seq_num)
+        self.process_crawl_request(peer, payload)
+
+    def process_crawl_request(self, peer, payload):
         start_seq_num = payload.start_seq_num
         end_seq_num = payload.end_seq_num
 
@@ -697,7 +671,6 @@ class TrustChainCommunity(Community):
             self.send_crawl_response(block, crawl_id, ind + 1, len(blocks), peer)
         self.logger.info("Sent %d blocks", len(blocks))
 
-    @synchronized
     def sanitize_database(self):
         """
         DANGER! USING THIS MAY CAUSE DOUBLE SPENDING IN THE NETWORK.
@@ -738,18 +711,17 @@ class TrustChainCommunity(Community):
     def send_crawl_response(self, block, crawl_id, index, total_count, peer):
         self.logger.debug("Sending block for crawl request to %s (%s)", peer, block)
 
-        global_time = self.claim_global_time()
         block_payload = HalfBlockPayload.from_half_block(block)
-        payload = CrawlResponsePayload(block_payload, crawl_id, index, total_count).to_pack_list()
-        dist = GlobalTimeDistributionPayload(global_time).to_pack_list()
+        payload = CrawlResponsePayload(block_payload, crawl_id, index, total_count)
 
-        packet = self._ez_pack(self._prefix, 3, [dist, payload], False)
-        self.endpoint.send(peer.address, packet)
+        self.endpoint.pass_payload(self.my_peer, peer.address, 3, payload)
 
-    @synchronized
     @lazy_wrapper_unsigned_wd(GlobalTimeDistributionPayload, CrawlResponsePayload)
     def received_crawl_response(self, source_address, dist, payload, data):
         peer = Peer(payload.block.public_key, source_address)
+        self.process_crawl_response_payload(peer, payload)
+
+    def process_crawl_response_payload(self, peer, payload):
         block = self.persistence.blocks[payload.block.hash]
 
         try:
@@ -775,19 +747,16 @@ class TrustChainCommunity(Community):
         latest_block = self.persistence.get_latest(self.my_peer.public_key.key_to_bin())
         return 0 if not latest_block else latest_block.sequence_number
 
-    @synchronized
     def create_introduction_request(self, socket_address, extra_bytes=b''):
         extra_bytes = struct.pack('>l', self.get_chain_length())
         return super(TrustChainCommunity, self).create_introduction_request(socket_address, extra_bytes)
 
-    @synchronized
     def create_introduction_response(self, lan_socket_address, socket_address, identifier,
                                      introduction=None, extra_bytes=b''):
         extra_bytes = struct.pack('>l', self.get_chain_length())
         return super(TrustChainCommunity, self).create_introduction_response(lan_socket_address, socket_address,
                                                                              identifier, introduction, extra_bytes)
 
-    @synchronized
     def introduction_response_callback(self, peer, dist, payload):
         chain_length = None
         if payload.extra_bytes:
