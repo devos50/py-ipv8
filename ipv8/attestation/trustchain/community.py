@@ -73,8 +73,6 @@ class TrustChainCommunity(Community):
         self.add_message_handler(CrawlRequestPayload, self.received_crawl_request)
         self.add_message_handler(CrawlResponsePayload, self.received_crawl_response)
         self.add_message_handler(HalfBlockPairPayload, self.received_half_block_pair)
-        self.add_message_handler(HalfBlockBroadcastPayload, self.received_half_block_broadcast)
-        self.add_message_handler(HalfBlockPairBroadcastPayload, self.received_half_block_pair_broadcast)
         self.add_message_handler(EmptyCrawlResponsePayload, self.received_empty_crawl_response)
         self.add_message_handler(InconsistencyPairPayload, self.received_two_inconsistent_blocks)
         self.add_message_handler(InconsistencyTripletPayload, self.received_three_inconsistent_blocks)
@@ -190,14 +188,7 @@ class TrustChainCommunity(Community):
 
         return False
 
-    def _add_broadcasted_blockid(self, block_id):
-        self.relayed_broadcasts.add(block_id)
-        self.relayed_broadcasts_order.append(block_id)
-        if len(self.relayed_broadcasts) > self.settings.broadcast_history_size:
-            to_remove = self.relayed_broadcasts_order.popleft()
-            self.relayed_broadcasts.remove(to_remove)
-
-    def send_block(self, block, address=None, ttl=1):
+    def send_block(self, block, address=None):
         """
         Send a block to a specific address, or do a broadcast to known peers if no peer is specified.
         """
@@ -208,28 +199,22 @@ class TrustChainCommunity(Community):
             self.endpoint.pass_payload(self.my_peer, address, 1, block_payload)
         else:
             self.logger.debug("Broadcasting block %s", block)
-            broadcast_payload = HalfBlockBroadcastPayload(block_payload, ttl)
             for peer in random.sample(self.all_peers, min(len(self.all_peers), self.settings.broadcast_fanout)):
-                self.endpoint.pass_payload(self.my_peer, peer.address, 5, broadcast_payload)
-            self._add_broadcasted_blockid(block.block_id)
+                self.endpoint.pass_payload(self.my_peer, peer.address, 1, block_payload)
 
-    def send_block_pair(self, block1, block2, address=None, ttl=1):
+    def send_block_pair(self, block1, block2, address=None):
         """
         Send a half block pair to a specific address, or do a broadcast to known peers if no peer is specified.
         """
-        global_time = self.claim_global_time()
-        dist = GlobalTimeDistributionPayload(global_time).to_pack_list()
+        payload = HalfBlockPairPayload.from_half_blocks(block1, block2)
 
         if address:
             self.logger.debug("Sending block pair to (%s:%d) (%s and %s)", address[0], address[1], block1, block2)
-            payload = HalfBlockPairPayload.from_half_blocks(block1, block2)
             self.endpoint.pass_payload(self.my_peer, address, 4, payload)
         else:
             self.logger.debug("Broadcasting blocks %s and %s", block1, block2)
-            payload = HalfBlockPairBroadcastPayload.from_half_blocks(block1, block2, ttl)
             for peer in random.sample(self.all_peers, min(len(self.all_peers), self.settings.broadcast_fanout)):
-                self.endpoint.pass_payload(self.my_peer, peer.address, 6, payload)
-            self._add_broadcasted_blockid(block1.block_id)
+                self.endpoint.pass_payload(self.my_peer, peer.address, 4, payload)
 
     def self_sign_block(self, block_type=b'unknown', transaction=None):
         return self.sign_block(self.my_peer, block_type=block_type, transaction=transaction)
@@ -363,20 +348,6 @@ class TrustChainCommunity(Community):
         except RuntimeError as e:
             self.logger.info("Failed to process half block (error %s)", e)
 
-    @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockBroadcastPayload)
-    def received_half_block_broadcast(self, source_address, dist, payload):
-        """
-        We received a half block, part of a broadcast. Disseminate it further.
-        """
-        self.process_half_block_broadcast_payload(payload)
-
-    def process_half_block_broadcast_payload(self, payload):
-        block = self.persistence.blocks[payload.block.hash]
-        self.validate_persist_block(block)
-
-        if block.block_id not in self.relayed_broadcasts and payload.ttl > 1:
-            self.send_block(block, ttl=payload.ttl - 1)
-
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockPairPayload)
     def received_half_block_pair(self, source_address, dist, payload):
         """
@@ -390,23 +361,6 @@ class TrustChainCommunity(Community):
 
         self.validate_persist_block(block1)
         self.validate_persist_block(block2)
-
-    @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, HalfBlockPairBroadcastPayload)
-    def received_half_block_pair_broadcast(self, source_address, dist, payload):
-        """
-        We received a half block pair, part of a broadcast. Disseminate it further.
-        """
-        self.process_half_block_pair_broadcast_payload(payload)
-
-    def process_half_block_pair_broadcast_payload(self, payload):
-        block1 = self.persistence.blocks[payload.hash1]
-        block2 = self.persistence.blocks[payload.hash2]
-
-        self.validate_persist_block(block1)
-        self.validate_persist_block(block2)
-
-        if block1.block_id not in self.relayed_broadcasts and payload.ttl > 1:
-            self.send_block_pair(block1, block2, ttl=payload.ttl - 1)
 
     @lazy_wrapper_unsigned(GlobalTimeDistributionPayload, InconsistencyPairPayload)
     def received_two_inconsistent_blocks(self, source_address, dist, payload):
