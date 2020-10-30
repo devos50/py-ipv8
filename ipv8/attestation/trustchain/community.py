@@ -12,6 +12,8 @@ from binascii import hexlify, unhexlify
 from collections import deque
 from threading import RLock
 
+from numpy import random as np_random
+
 from .block import ANY_COUNTERPARTY_PK, EMPTY_PK, GENESIS_SEQ, TrustChainBlock, UNKNOWN_SEQ, ValidationResult
 from .caches import ChainCrawlCache, CrawlRequestCache, HalfBlockSignCache, IntroCrawlTimeout
 from .database import TrustChainDB
@@ -136,7 +138,20 @@ class TrustChainCommunity(Community):
 
             self.sign_block(peer, peer.public_key.key_to_bin(), block_type=b'test', transaction={}, double_spend=double_spend)
 
-            yield self.env.timeout(1000)
+            if self.sim_settings.workload == 0:
+                tx_delay = 1000
+            elif self.sim_settings.workload == 1:
+                tx_delay = random.randint(0, 2000)
+            elif self.sim_settings.workload == 2:
+                tx_delay = np_random.normal(1, 0.3)
+                if tx_delay < 0:
+                    tx_delay = 0
+                tx_delay *= 1000  # to ms
+            else:
+                print("Unknown workload! Using 1 sec as delay")
+                tx_delay = 1000
+
+            yield self.env.timeout(tx_delay)
 
     def do_db_cleanup(self):
         """
