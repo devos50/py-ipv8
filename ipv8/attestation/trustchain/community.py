@@ -300,7 +300,7 @@ class TrustChainCommunity(Community):
                                                         link=linked, additional_info=additional_info,
                                                         link_pk=public_key, double_spend=double_spend,
                                                         back_pointers=self.sim_settings.back_pointers)
-        block.sign(self.my_peer.key)
+        #block.sign(self.my_peer.key)
 
         # validation = block.validate(self.persistence)
         # self.logger.info("Signed block to %s (%s) validation result %s",
