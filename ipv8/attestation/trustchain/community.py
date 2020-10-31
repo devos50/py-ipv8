@@ -106,7 +106,7 @@ class TrustChainCommunity(Community):
                     start_seq = 1
 
                 crawl_batch_size = self.settings.crawl_batch_size
-                end_seq = start_seq + crawl_batch_size
+                end_seq = start_seq + crawl_batch_size - 1
                 self.send_crawl_request(peer, peer.public_key.key_to_bin(), start_seq, end_seq)
                 self.logger.info("Crawling peer %s (%d - %d)", peer, start_seq, end_seq)
 
