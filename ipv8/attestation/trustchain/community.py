@@ -47,7 +47,10 @@ class TrustChainCommunity(Community):
         db_name = kwargs.pop('db_name', self.DB_NAME)
         self.settings = kwargs.pop('settings', TrustChainSettings())
         self.data_dir = kwargs.pop('data_dir')
+        self.peer_id = kwargs.pop('peer_id')
+        self.scenario = kwargs.pop('scenario')
         self.sim_settings = kwargs.pop('sim_settings')
+        self.peer_id_to_peer = {}
         self.receive_block_lock = RLock()
 
         super(TrustChainCommunity, self).__init__(*args, **kwargs)
@@ -55,8 +58,7 @@ class TrustChainCommunity(Community):
 
         logs_dir = os.path.join(self.data_dir, "logs")
         os.makedirs(logs_dir, exist_ok=True)
-        log_file = os.path.join(logs_dir, "%s.log" % hexlify(self.my_peer.public_key.key_to_bin()).decode()[-8:])
-        self.logger = logging.getLogger(self.__class__.__name__) #setup_logger(self.__class__.__name__, log_file)
+        self.logger = logging.getLogger(self.__class__.__name__)
 
         if not self.persistence:
             self.persistence = self.DB_CLASS(working_directory, db_name, self.my_peer.public_key.key_to_bin())
@@ -152,6 +154,36 @@ class TrustChainCommunity(Community):
                 tx_delay = 1000
 
             yield self.env.timeout(tx_delay)
+
+    def start_scenario(self):
+        self.all_peers = self.get_peers()
+
+        if self.peer_id not in self.scenario.actions:
+            # This peer has no actions scheduled
+            return
+
+        while self.scenario.actions[self.peer_id]:
+            next_action = self.scenario.actions[self.peer_id][0]
+            yield self.env.timeout(next_action[0])
+
+            peer = self.peer_id_to_peer[next_action[1]]
+
+            # Should we double spend?
+            double_spend = False
+            latest_block = self.persistence.get_latest(self.my_peer.public_key.key_to_bin())
+            if random.random() <= self.sim_settings.double_spend_probability and not self.did_double_spend and latest_block and latest_block.sequence_number > 1:
+                self.did_double_spend = True
+                import chainsim.globals as global_vars
+                global_vars.peers_committed_fraud += 1
+                double_spend = True
+
+                with open(os.path.join(self.data_dir, "fraud_time.txt"), "a") as out:
+                    hex_pk = hexlify(self.my_peer.public_key.key_to_bin()).decode()
+                    out.write("%s,%d\n" % (hex_pk, self.env.now))
+
+            self.sign_block(peer, peer.public_key.key_to_bin(), block_type=b'test', transaction={}, double_spend=double_spend)
+
+            self.scenario.actions[self.peer_id].pop(0)
 
     def do_db_cleanup(self):
         """
