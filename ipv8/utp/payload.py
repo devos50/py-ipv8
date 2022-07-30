@@ -14,6 +14,11 @@ class UTPPacketType(Enum):
     NUM_TYPES = 5
 
 
+class PacketFlags(Enum):
+    PKT_ACK = 1
+    PKT_FIN = 2
+
+
 class UTPPayloadMetainfo:
 
     def __init__(self) -> None:

@@ -23,3 +23,6 @@ class PacketBuffer:
 
     def empty(self) -> bool:
         return self.size() == 0
+
+    def span(self) -> int:
+        return (max(self.buffer.keys()) - min(self.buffer.keys())) & 0xFFFF

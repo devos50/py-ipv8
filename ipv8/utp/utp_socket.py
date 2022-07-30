@@ -8,7 +8,7 @@ from . import TORRENT_ETHERNET_MTU, TORRENT_IPV4_HEADER, TORRENT_UDP_HEADER, TOR
     UTPExtensionType, compare_less_wrap
 from .error import UTPError, UTPErrorCode
 from .packet_buffer import PacketBuffer
-from .payload import UTPPayloadMetainfo, UTPPayload, UTPPacketType
+from .payload import UTPPayloadMetainfo, UTPPayload, UTPPacketType, PacketFlags
 from .sliding_average import SlidingAverage
 from .timestamp_history import TimestampHistory
 from ..types import Address, Endpoint, Peer
@@ -62,6 +62,10 @@ class UTPSocket:
         # to the state_t::deleting state
         self.m_userdata: Optional[UTPSocket] = None
 
+        # if this is non nullptr, it's a packet. This packet was held off because of NAGLE.
+        # We couldn't send it immediately. It's left here to accrue more bytes before we send it.
+        self.m_nagle_packet: Optional[UTPPayloadMetainfo] = None
+
         # this is the error on this socket. If m_state is set to state_t::error_wait, this error should be
         # forwarded to the client as soon as we have a new async operation initiated
         self.m_error: Optional[UTPError] = None
@@ -112,6 +116,9 @@ class UTPSocket:
 
         # the number of un-acked bytes we have sent
         self.m_bytes_in_flight: int = 0
+
+        # the sum of the lengths of all iovec in m_write_buffer
+        self.m_write_buffer_size: int = 0
 
         # max number of bytes to allocate for receive buffer
         self.m_receive_buffer_capacity = 1024 * 1024
@@ -367,7 +374,7 @@ class UTPSocket:
             self.m_slow_start = False
             self.logger.debug("experienced loss, slow_start -> 0 ssthres:%d", self.m_ssthres)
 
-    def resend_packet(self, p: UTPPayloadMetainfo, fast_resend: bool) -> bool:
+    def resend_packet(self, p: UTPPayloadMetainfo, fast_resend: bool = False) -> bool:
         # for fast re-sends the packet hasn't been marked as needing resending
         assert p.need_resend or fast_resend
 
@@ -458,6 +465,106 @@ class UTPSocket:
 
         self.m_rtt.add_sample(rtt // 1000)
         return rtt
+
+    def send_pkt(self, flags: int) -> bool:
+        """
+        sends a packet, pulls data from the write buffer (if there's any) if ack is true, we need to send a packet
+        regardless of if there's any data. Returns true if we could send more data (i.e. call send_pkt() again)
+        returns true if there is more space for payload in our congestion window, false if there is no more space.
+        m_seq_nr is only incremented when sending packets with data payload. i.e. not for ST_STATE or ST_FIN packets
+        """
+        force: bool = (flags & PacketFlags.PKT_ACK.value) or (flags & PacketFlags.PKT_FIN.value)
+
+        # first see if we need to resend any packets
+
+        i: int = (self.m_acked_seq_nr + 1) & ACK_MASK
+        while i != self.m_seq_nr:
+            p: UTPPayloadMetainfo = self.m_outbuf.at(i)
+            if not p:
+                continue
+            if not p.need_resend:
+                continue
+            if not self.resend_packet(p):
+                # we couldn't resend the packet. It probably doesn't fit in our cwnd. If force is set, we need to
+                # continue to send our packet anyway, if we don't have force set, we might as well return
+                if not force:
+                    return False
+                # resend_packet might have failed
+                if self.m_state in [UTPSocketState.ERROR_WAIT, UTPSocketState.DELETING]:
+                    return False
+                break
+
+            # don't fast-resend this packet
+            if self.m_fast_resend_seq_nr == i:
+                self.m_fast_resend_seq_nr = (self.m_fast_resend_seq_nr + 1) & ACK_MASK
+
+            i = (i + 1) & ACK_MASK
+
+        # MTU DISCOVERY
+
+        # under these conditions, the next packet we send should be an MTU probe.
+        # MTU probes get to use the mid-point packet size, whereas other packets use a conservative packet size of the
+        # largest known to work. The reason for the cwnd condition is to make sure the probe is surrounded by non-
+        # probes, to be able to distinguish a loss of the probe vs. just loss in general.
+        mtu_probe: bool = (self.m_mtu_seq == 0 and self.m_seq_nr != 0 and (self.m_cwnd >> 16) > self.m_mtu_floor * 3)
+        # for non MTU-probes, use the conservative packet size
+        effective_mtu: int = self.m_mtu if mtu_probe else self.m_mtu_floor
+
+        close_reason: int = self.m_close_reason
+
+        sack: int = 0
+        if self.m_inbuf.size():
+            max_sack_size: int = effective_mtu - UTP_HEADER_SIZE - 2 - (6 if close_reason else 0)
+
+            # the SACK bitfield should ideally fit all the pieces we have successfully received
+            sack: int = (self.m_inbuf.span() + 7) // 8
+            if sack > max_sack_size:
+                sack = max_sack_size
+
+        header_size: int = UTP_HEADER_SIZE + ((sack + 2) if sack else 0) + (6 if close_reason else 0)
+
+        payload_size: int = min(self.m_write_buffer_size, effective_mtu - header_size)
+        assert payload_size >= 0
+
+        # if we have one MSS worth of data, make sure it fits in our congestion window and the advertised receive
+        # window from the other end.
+        if self.m_bytes_in_flight + payload_size > min(self.m_cwnd >> 16, self.m_adv_wnd):
+            # this means there's not enough room in the send window for another packet.
+            # We have to hold off sending this data. we still need to send an ACK though if we're trying to send a FIN,
+            # make an exception
+            if flags & PacketFlags.PKT_FIN.value == 0:
+                payload_size = 0
+
+            self.m_cwnd_full = True
+
+            self.logger.debug("no space in window send_buffer_size:%d cwnd:%d adv_wnd:%d in-flight:%d mtu:%d",
+                              self.m_write_buffer_size, self.m_cwnd >> 16, self.m_adv_wnd, self.m_bytes_in_flight,
+                              self.m_mtu)
+
+            if not force:
+                self.logger.debug("skipping send seq_nr:%d ack_nr:%d id:%d target:%s header_size:%d error:%s "
+                                  "send_buffer_size:%d cwnd:%d adv_wnd:%d in-flight:%d mtu:%u effective-mtu:%d",
+                                  self.m_seq_nr, self.m_ack_nr, self.m_send_id, self.m_remote_address,
+                                  header_size, self.m_error.message, self.m_write_buffer_size, self.m_cwnd >> 16,
+                                  self.m_adv_wnd, self.m_bytes_in_flight, self.m_mtu, effective_mtu)
+                return False
+
+        # if we don't have any data to send, or can't send any data and we don't have any data to force, don't send a
+        # packet.
+        if payload_size == 0 and not force and not self.m_nagle_packet:
+            self.logger.debug("skipping send (no payload and no force) seq_nr:%d ack_nr:%d id:%d target:%s "
+                              "header_size:%d error:%s send_buffer_size:%d cwnd:%d adv_wnd:%u in-flight:%d mtu:%u",
+                              self.m_seq_nr, self.m_ack_nr, self.m_send_id, self.m_remote_address, header_size,
+                              self.m_error.message, self.m_write_buffer_size, self.m_cwnd >> 16, self.m_adv_wnd,
+                              self.m_bytes_in_flight, self.m_mtu)
+            return False
+
+        p: Optional[UTPPayloadMetainfo] = None
+
+        # payload size being zero means we're just sending an force. We should not pick up the nagle packet
+        if not self.m_nagle_packet or (payload_size == 0 and force):
+            finish here
+
 
     def incoming_packet(self, payload: UTPPayload, peer: Peer, receive_time: datetime.datetime) -> bool:
         if payload.get_version() != 1:
