@@ -62,6 +62,12 @@ class UTPSocket:
         # to the state_t::deleting state
         self.m_userdata: Optional[UTPSocket] = None
 
+        # if there's currently an async read or write operation in progress, these buffers are initialized and used,
+        # otherwise any bytes received are stuck in m_receive_buffer until another read is made.
+        # as we flush from the write buffer, individual iovecs are updated to only refer to unflushed portions of the
+        # buffers. Buffers that empty are erased from the vector.
+        self.m_write_buffer: List[bytes] = []
+
         # if this is non nullptr, it's a packet. This packet was held off because of NAGLE.
         # We couldn't send it immediately. It's left here to accrue more bytes before we send it.
         self.m_nagle_packet: Optional[UTPPayloadMetainfo] = None
@@ -287,6 +293,7 @@ class UTPSocket:
         # Serialize and send the packet
         packet = self.socket_manager.community.ezr_pack(UTPPayload.msg_id, payload)
         self.socket_manager.endpoint.send(self.m_remote_address, packet)
+        # TODO no error handling
 
     def do_connect(self, address: Address):
         mtu: int = self.socket_manager.mtu_for_dest(address)
@@ -563,8 +570,63 @@ class UTPSocket:
 
         # payload size being zero means we're just sending an force. We should not pick up the nagle packet
         if not self.m_nagle_packet or (payload_size == 0 and force):
-            finish here
+            p = UTPPayloadMetainfo()
+            # TODO inc_stats_counter here
 
+            packet_size: int = header_size + payload_size
+            p.size = packet_size
+            p.header_size = packet_size - payload_size
+            p.num_transmissions = 0
+            p.mtu_probe = False
+            p.need_resend = False
+
+            type_ver = (UTPPacketType.ST_DATA.value if payload_size else UTPPacketType.ST_STATE.value) << 4 | 1
+            extension = UTPExtensionType.NO_EXTENSION
+            payload = UTPPayload(type_ver, extension.value, self.m_send_id, 0, 0, 0, 0, 0, b"")
+            self.write_payload(payload, payload_size)
+            p.payload = payload
+        else:
+            # pick up the nagle packet and keep adding bytes to it
+            assert self.m_nagle_packet.payload.seq_nr == self.m_seq_nr
+
+            # TODO no support for selective ack yet
+
+            size_left: int = min(self.m_nagle_packet.allocated - self.m_nagle_packet.size,
+                                 self.m_write_buffer_size,
+                                 effective_mtu - self.m_nagle_packet.size)
+            if size_left > 0:
+                self.write_payload(self.m_nagle_packet.payload, size_left)
+                self.m_nagle_packet.size += size_left
+
+                if size_left > 0:
+                    self.logger.debug("NAGLE appending %d bytes to nagle packet. new size: %d allocated: %d",
+                                      size_left, self.m_nagle_packet.size, self.m_nagle_packet.allocated)
+
+            # did we fill up the whole mtu?
+            # if we didn't, we may still send it if there's no bytes in flight
+            if self.m_bytes_in_flight > 0 and \
+                self.m_nagle_packet.size < min(self.m_nagle_packet.allocated, effective_mtu) \
+                and not force and self.m_nagle:
+                # the packet is still not a full MSS, so put it back into the nagle packet
+                self.m_nagle_packet =
+
+    def write_payload(self, payload: UTPPayload, size: int) -> None:
+        """
+        Copies data from the write buffer into the payload.
+        """
+        # TODO we ignore a few asserts here
+        # TODO we need to make sure that we don't overflow the payload!
+        assert self.m_write_buffer or size == 0
+        assert self.m_write_buffer_size >= size
+
+        if size <= 0:
+            return
+
+        while size > 0:
+            assert self.m_write_buffer
+            payload.data += self.m_write_buffer.pop(0)
+
+        # TODO we ignore a few asserts here
 
     def incoming_packet(self, payload: UTPPayload, peer: Peer, receive_time: datetime.datetime) -> bool:
         if payload.get_version() != 1:
