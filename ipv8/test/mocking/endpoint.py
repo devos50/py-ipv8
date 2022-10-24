@@ -32,6 +32,10 @@ class MockEndpoint(Endpoint):
         self.lan_address = lan_address
         self.wan_address = wan_address
 
+        # Byte counters
+        self.bytes_up: int = 0
+        self.bytes_down: int = 0
+
         self._port = self.lan_address[1]
         self._open = False
 
@@ -49,7 +53,9 @@ class MockEndpoint(Endpoint):
             return
         if socket_address in internet:
             # For the unit tests we handle messages in separate asyncio tasks to prevent infinite recursion.
+            self.bytes_up += len(packet)
             ep = internet[socket_address]
+            ep.bytes_down += len(packet)
             get_event_loop().call_soon(ep.notify_listeners, (self.wan_address, packet))
         else:
             e = AssertionError("Attempted to send data to unregistered address %s" % repr(socket_address))
