@@ -2,7 +2,7 @@ import asyncio
 import heapq
 
 
-class DiscreteLoop(asyncio.AbstractEventLoop):
+class DiscreteLoop(asyncio.BaseEventLoop):
     """
     A discrete asyncio loop that immediately executes incoming tasks without a real-time waiting period.
     This loop can be helpful when quickly running simulation experiments with the IPv8 library. Usage:
@@ -14,9 +14,9 @@ class DiscreteLoop(asyncio.AbstractEventLoop):
     def __init__(self):
         self._time = 0
         self._running = False
-        self._immediate = []
         self._scheduled = []
         self._exc = None
+        super().__init__()
 
     def get_debug(self):
         return False
@@ -27,10 +27,10 @@ class DiscreteLoop(asyncio.AbstractEventLoop):
     def run_forever(self):
         self._running = True
         asyncio._set_running_loop(self)
-        while (self._immediate or self._scheduled) and self._running:
-            if self._immediate:
-                h = self._immediate[0]
-                self._immediate = self._immediate[1:]
+        while (self._ready or self._scheduled) and self._running:
+            self._process_events()
+            if self._ready:
+                h = self._ready.popleft()
             else:
                 h = heapq.heappop(self._scheduled)
                 self._time = h._when
@@ -61,34 +61,6 @@ class DiscreteLoop(asyncio.AbstractEventLoop):
     def call_exception_handler(self, context):
         self._exc = context.get('exception', None)
 
-    def call_soon(self, callback, *args, context=None):
-        h = asyncio.Handle(callback, args, self)
-        self._immediate.append(h)
-        return h
-
-    def call_later(self, delay, callback, *args):
-        if delay < 0:
-            raise Exception("Can't schedule in the past")
-        return self.call_at(self._time + delay, callback, *args)
-
-    def call_at(self, when, callback, *args):
-        if when < self._time:
-            raise Exception("Can't schedule in the past")
-        h = asyncio.TimerHandle(when, callback, args, self)
-        heapq.heappush(self._scheduled, h)
-        h._scheduled = True
-        return h
-
-    def create_task(self, coro):
-        async def wrapper():
-            try:
-                await coro
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                self._exc = e
-
-        return asyncio.Task(wrapper(), loop=self)
-
-    def create_future(self):
-        return asyncio.Future(loop=self)
+    def _process_events(self):
+        # This method processes ready events and sets the next ready event in the '_ready' attribute.
+        pass  # Your current implementation doesn't need to do anything in this method.
