@@ -218,21 +218,22 @@ def vp_compile(vp_definition: typing.Type[VariablePayload]) -> typing.Type[Varia
     """
     JIT Compilation of a VariablePayload definition.
     """
+    local_scope = locals()
 
     # We use ``exec`` purposefully here, disable the pylint warning:
     # pylint: disable=W0122
 
     # Load the function definitions into the local scope.
-    exec(_compile_init(vp_definition.names), globals(), locals())
-    exec(_compile_from_unpack_list(vp_definition, vp_definition.names), globals(), locals())
-    exec(_compile_to_pack_list(vp_definition, vp_definition.format_list, vp_definition.names), globals(), locals())
+    exec(_compile_init(vp_definition.names), globals(), local_scope)
+    exec(_compile_from_unpack_list(vp_definition, vp_definition.names), globals(), local_scope)
+    exec(_compile_to_pack_list(vp_definition, vp_definition.format_list, vp_definition.names), globals(), local_scope)
 
     # Rewrite the class methods from the locally loaded overwrites.
     # from_unpack_list is a classmethod, so we need to scope it properly.
-    setattr(vp_definition, '__init__', locals()['__init__'])
+    setattr(vp_definition, '__init__', local_scope['__init__'])
     setattr(vp_definition, '__match_args__', tuple(vp_definition.names))
-    setattr(vp_definition, 'from_unpack_list', types.MethodType(locals()['from_unpack_list'], vp_definition))
-    setattr(vp_definition, 'to_pack_list', locals()['to_pack_list'])
+    setattr(vp_definition, 'from_unpack_list', types.MethodType(local_scope['from_unpack_list'], vp_definition))
+    setattr(vp_definition, 'to_pack_list', local_scope['to_pack_list'])
     return vp_definition
 
 
